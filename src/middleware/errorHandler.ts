@@ -9,10 +9,10 @@ export async function errorHandler(ctx: Koa.Context, next: Koa.Next) {
     const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 500;
 
     ctx.status = status;
+    const message = status === 500 ? "Internal server error" : error.message;
     ctx.body = {
-      error: {
-        message: status === 500 ? "Internal server error" : error.message,
-      },
+      message,
+      error: { message },
     };
 
     ctx.app.emit("error", error, ctx);

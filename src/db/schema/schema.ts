@@ -7,6 +7,8 @@ import {
   timestamp,
   numeric,
   pgEnum,
+  unique,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 // Enums
@@ -75,14 +77,54 @@ export const users = pgTable("users", {
     .references(() => businesses.id, { onDelete: "cascade" }),
   branchId: integer("branch_id").references(() => branches.id, { onDelete: "set null" }),
   name: varchar("name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull(),
-  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  passwordHash: varchar("password_hash", { length: 255 }), // nullable for Google-only users
+  avatarUrl: varchar("avatar_url", { length: 512 }),
   role: userRoleEnum("role").notNull().default("attendant"),
   isActive: integer("is_active").notNull().default(1),
+  emailVerified: boolean("email_verified").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
+});
+
+// OAuth/social provider links (e.g. Google)
+export const authProviders = pgTable(
+  "auth_providers",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: varchar("provider", { length: 50 }).notNull(), // e.g. "google"
+    providerUserId: varchar("provider_user_id", { length: 255 }).notNull(),
+    providerEmail: varchar("provider_email", { length: 255 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ uniqueProviderUser: unique().on(t.provider, t.providerUserId) })
+);
+
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 255 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 255 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
 });
 
 // Products & inventory
@@ -102,6 +144,45 @@ export const products = pgTable("products", {
     .defaultNow()
     .notNull(),
 });
+
+// Product categories (per business, unique by name)
+export const productCategories = pgTable(
+  "product_categories",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    uniqueBusinessCategoryName: unique().on(t.businessId, t.name),
+  }),
+);
+
+// Product SKUs (per business, unique by code)
+export const productSkus = pgTable(
+  "product_skus",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 100 }).notNull(),
+    reorderLevel: integer("reorder_level").notNull().default(10),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    uniqueBusinessSkuCode: unique().on(t.businessId, t.code),
+  }),
+);
 
 // Per-branch stock levels
 export const stockLevels = pgTable("stock_levels", {
