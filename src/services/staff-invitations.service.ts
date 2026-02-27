@@ -24,11 +24,13 @@ export interface StaffInvitationInfo {
   isExistingUserForThisBusiness: boolean;
 }
 
+export type StaffRole = "admin" | "manager" | "attendant";
+
 export interface CreateInvitationParams {
   inviterUserId: number;
   businessId: number;
   email: string;
-  role: string;
+  role: StaffRole;
   branchId?: number | null;
 }
 

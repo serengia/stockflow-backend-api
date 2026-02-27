@@ -3,12 +3,13 @@ import { koaBody } from "koa-body";
 
 import { cloudinary } from "../lib/cloudinary.js";
 
-export const multipartBody: Middleware = koaBody({
+// Cast needed: koa-body's Middleware uses its own @types/koa, which conflicts with project @types/koa
+export const multipartBody = koaBody({
   multipart: true,
   formidable: {
     maxFileSize: 10 * 1024 * 1024, // 10MB
   },
-});
+}) as unknown as Middleware;
 
 type CloudinaryUploadOptions = {
   /**

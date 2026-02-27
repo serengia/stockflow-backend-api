@@ -14,7 +14,7 @@ interface RequestWithBody {
 const updateUserBody = z.object({
   name: z.string().min(1).max(255).optional(),
   phone: z.string().min(3).max(50).optional(),
-  role: z.enum(["admin", "manager", "supervisor", "attendant"]).optional(),
+  role: z.enum(["admin", "manager", "attendant"]).optional(),
   active: z.boolean().optional(),
 });
 
@@ -101,6 +101,12 @@ usersRouter.patch("/:id", requireAuth, async (ctx: Context) => {
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(users.id, existing.id))
     .returning();
+
+  if (!updated) {
+    ctx.status = 500;
+    ctx.body = { message: "Update failed", error: { message: "Update failed" } };
+    return;
+  }
 
   ctx.status = 200;
   ctx.body = {

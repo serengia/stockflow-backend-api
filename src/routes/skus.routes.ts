@@ -51,7 +51,7 @@ skusRouter.post("/", requireAuth, async (ctx: Context) => {
   const created = await skusService.createSku({
     businessId: user.businessId,
     code: parsed.data.code,
-    reorderLevel: parsed.data.reorderLevel,
+    ...(parsed.data.reorderLevel !== undefined && { reorderLevel: parsed.data.reorderLevel }),
   });
 
   ctx.status = 201;
@@ -81,8 +81,8 @@ skusRouter.patch("/:id", requireAuth, async (ctx: Context) => {
   const updated = await skusService.updateSku({
     id,
     businessId: user.businessId,
-    code: parsed.data.code,
-    reorderLevel: parsed.data.reorderLevel,
+    ...(parsed.data.code !== undefined && { code: parsed.data.code }),
+    ...(parsed.data.reorderLevel !== undefined && { reorderLevel: parsed.data.reorderLevel }),
   });
 
   ctx.status = 200;

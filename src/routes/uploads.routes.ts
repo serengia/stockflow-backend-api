@@ -24,16 +24,18 @@ uploadsRouter.post(
     },
   }),
   async (ctx) => {
-    if (!ctx.state.uploadedFile) {
+    const file = ctx.state.uploadedFile;
+    if (!file) {
       ctx.throw(500, "Upload failed");
+      return;
     }
 
     ctx.status = 201;
     ctx.body = {
       status: "success",
       data: {
-        url: ctx.state.uploadedFile.url,
-        publicId: ctx.state.uploadedFile.publicId,
+        url: file.url,
+        publicId: file.publicId,
       },
     };
   },
@@ -59,16 +61,18 @@ uploadsRouter.post(
     },
   }),
   async (ctx) => {
-    if (!ctx.state.uploadedFile) {
+    const file = ctx.state.uploadedFile;
+    if (!file) {
       ctx.throw(500, "Upload failed");
+      return;
     }
 
     ctx.status = 201;
     ctx.body = {
       status: "success",
       data: {
-        url: ctx.state.uploadedFile.url,
-        publicId: ctx.state.uploadedFile.publicId,
+        url: file.url,
+        publicId: file.publicId,
       },
     };
   },

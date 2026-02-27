@@ -78,7 +78,7 @@ productsRouter.get("/", requireAuth, async (ctx: Context) => {
 
   const items = await productsService.listProducts({
     businessId: user.businessId,
-    branchId,
+    branchId: branchId ?? null,
   });
 
   const data = belowReorder ? items.filter((p) => p.quantity < p.reorderLevel) : items;
@@ -104,15 +104,15 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
 
   const created = await productsService.createProduct({
     businessId: user.businessId,
-    branchId: user.branchId ?? undefined,
+    branchId: user.branchId ?? null,
     userId: user.id,
     name: payload.name,
-    sku: payload.sku,
-    category: payload.category,
+    sku: payload.sku ?? null,
+    category: payload.category ?? null,
     costPrice: payload.costPrice,
     sellPrice: payload.sellPrice,
-    quantity: payload.quantity,
-    reorderLevel: payload.reorderLevel,
+    ...(payload.quantity !== undefined && { quantity: payload.quantity }),
+    ...(payload.reorderLevel !== undefined && { reorderLevel: payload.reorderLevel }),
   });
 
   ctx.status = 201;
@@ -144,15 +144,15 @@ productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
   const updated = await productsService.updateProduct({
     id,
     businessId: user.businessId,
-    branchId: user.branchId ?? undefined,
+    branchId: user.branchId ?? null,
     userId: user.id,
-    name: payload.name,
-    sku: payload.sku,
-    category: payload.category,
-    costPrice: payload.costPrice,
-    sellPrice: payload.sellPrice,
-    quantity: payload.quantity,
-    reorderLevel: payload.reorderLevel,
+    ...(payload.name !== undefined && { name: payload.name }),
+    ...(payload.sku !== undefined && { sku: payload.sku ?? null }),
+    ...(payload.category !== undefined && { category: payload.category ?? null }),
+    ...(payload.costPrice !== undefined && { costPrice: payload.costPrice }),
+    ...(payload.sellPrice !== undefined && { sellPrice: payload.sellPrice }),
+    ...(payload.quantity !== undefined && { quantity: payload.quantity }),
+    ...(payload.reorderLevel !== undefined && { reorderLevel: payload.reorderLevel }),
   });
 
   ctx.status = 200;

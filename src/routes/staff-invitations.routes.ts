@@ -168,12 +168,12 @@ staffInvitationsRouter.post(
 
     const { name, password } = parsed.data;
 
-    const { user } = await acceptInvitation({
-      token,
-      userId: maybeUser?.id,
-      name,
-      password,
-    });
+    const acceptParams: Parameters<typeof acceptInvitation>[0] = { token };
+    if (maybeUser?.id !== undefined) acceptParams.userId = maybeUser.id;
+    if (name !== undefined) acceptParams.name = name;
+    if (password !== undefined) acceptParams.password = password;
+
+    const { user } = await acceptInvitation(acceptParams);
 
     // Issue tokens so newly accepted staff can go straight to dashboard
     const accessToken = await signAccessToken({
