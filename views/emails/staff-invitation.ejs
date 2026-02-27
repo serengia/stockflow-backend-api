@@ -1,0 +1,29 @@
+<%- await include('partials/header', { title: 'You are invited to join a business on Stockflow' }) %>
+      <h2 style="margin: 0 0 16px; font-size: 20px;">You are invited to join <%= businessName %></h2>
+      <p style="margin: 0 0 16px;">
+        <strong><%= inviterName %></strong> has invited <strong><%= invitedEmail %></strong> to join
+        <strong><%= businessName %></strong> on Stockflow as <strong><%= role %></strong>.
+      </p>
+      <p style="margin: 0 0 24px;">
+        Click the button below to accept this invitation and access the business dashboard:
+      </p>
+      <p style="margin: 0 0 24px;">
+        <a
+          href="<%= inviteUrl %>"
+          style="display: inline-block; padding: 10px 20px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 999px; font-weight: 500;"
+        >
+          Accept invitation
+        </a>
+      </p>
+      <p style="margin: 0 0 16px; font-size: 14px; color: #64748b;">
+        If the button doesn&apos;t work, copy and paste this link into your browser:
+      </p>
+      <p style="margin: 0; font-size: 12px; word-break: break-all; color: #64748b;">
+        <%= inviteUrl %>
+      </p>
+      <p style="margin: 24px 0 0; font-size: 14px; color: #64748b;">
+        If you weren&apos;t expecting this invitation, you can safely ignore this email.
+      </p>
+      <p style="margin: 8px 0 0;">— The Stockflow team</p>
+<%- await include('partials/footer', { year }) %>
+

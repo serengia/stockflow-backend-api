@@ -5,6 +5,8 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role?: string | undefined;
+  businessId?: number | undefined;
+  branchId?: number | null | undefined;
 }
 
 export async function signAccessToken(payload: JwtPayload): Promise<string> {
@@ -21,10 +23,28 @@ export async function verifyAccessToken(token: string): Promise<JwtPayload> {
   const secret = new TextEncoder().encode(env.jwtSecret);
   const { payload } = await jose.jwtVerify(token, secret);
   const role = payload.role;
+  const businessId =
+    typeof payload.businessId === "number"
+      ? payload.businessId
+      : typeof payload.businessId === "string"
+        ? Number(payload.businessId)
+        : undefined;
+  const branchId =
+    typeof payload.branchId === "number"
+      ? payload.branchId
+      : typeof payload.branchId === "string"
+        ? Number(payload.branchId)
+        : undefined;
   return {
     sub: payload.sub as string,
     email: (payload.email as string) ?? "",
     ...(typeof role === "string" ? { role } : {}),
+    ...(typeof businessId === "number" && Number.isFinite(businessId)
+      ? { businessId }
+      : {}),
+    ...(typeof branchId === "number" && Number.isFinite(branchId)
+      ? { branchId }
+      : {}),
   };
 }
 

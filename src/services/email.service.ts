@@ -63,3 +63,50 @@ export async function sendWelcomeEmail(params: SendWelcomeEmailParams): Promise<
     text: `Welcome, ${params.name}! Thanks for signing up. You're all set to manage your inventory and sales in one place. — The Stockflow team`,
   });
 }
+
+export interface SendStaffInvitationEmailParams {
+  to: string;
+  invitedEmail: string;
+  businessName: string;
+  role: string;
+  inviterName: string;
+  inviteUrl: string;
+}
+
+/**
+ * Sends a staff invitation email with a secure link. No-op if Mailtrap is not configured.
+ */
+export async function sendStaffInvitationEmail(
+  params: SendStaffInvitationEmailParams,
+): Promise<void> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    return;
+  }
+
+  const html = await renderTemplate("staff-invitation", {
+    inviterName: params.inviterName,
+    invitedEmail: params.invitedEmail,
+    businessName: params.businessName,
+    role: params.role,
+    inviteUrl: params.inviteUrl,
+    year: new Date().getFullYear(),
+  });
+
+  await transporter.sendMail({
+    from: env.mailFrom,
+    to: params.to,
+    subject: `You're invited to join ${params.businessName} on Stockflow`,
+    html,
+    text: `Hi,
+
+${params.inviterName} has invited you to join ${params.businessName} on Stockflow as ${params.role}.
+
+Open this link in your browser to accept the invitation:
+${params.inviteUrl}
+
+If you weren't expecting this, you can safely ignore this email.
+
+— The Stockflow team`,
+  });
+}

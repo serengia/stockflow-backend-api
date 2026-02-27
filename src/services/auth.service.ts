@@ -136,6 +136,8 @@ export async function login(
     sub: String(user.id),
     email: user.email,
     role: user.role,
+    businessId: user.businessId,
+    branchId: user.branchId,
   });
   const refreshToken = await signRefreshToken({ sub: String(user.id) });
   return { user: toAuthUser(user), token, refreshToken };
@@ -228,6 +230,8 @@ export async function loginWithGoogle(
       sub: String(user.id),
       email: user.email,
       role: user.role,
+      businessId: user.businessId,
+      branchId: user.branchId,
     });
     const refreshToken = await signRefreshToken({ sub: String(user.id) });
     return { user: toAuthUser(user), token, refreshToken };
@@ -269,6 +273,8 @@ export async function loginWithGoogle(
       sub: String(user.id),
       email: user.email,
       role: user.role,
+      businessId: user.businessId,
+      branchId: user.branchId,
     });
     const refreshToken = await signRefreshToken({ sub: String(user.id) });
     return { user: toAuthUser(user), token, refreshToken };
@@ -315,6 +321,8 @@ export async function loginWithGoogle(
     sub: String(user.id),
     email: user.email,
     role: user.role,
+    businessId: user.businessId,
+    branchId: user.branchId,
   });
   const refreshToken = await signRefreshToken({ sub: String(user.id) });
 

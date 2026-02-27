@@ -19,6 +19,8 @@ import { productsRouter } from "./routes/products.routes.js";
 import { categoriesRouter } from "./routes/categories.routes.js";
 import { skusRouter } from "./routes/skus.routes.js";
 import { salesRouter } from "./routes/sales.routes.js";
+import { staffInvitationsRouter } from "./routes/staff-invitations.routes.js";
+import { usersRouter } from "./routes/users.routes.js";
 
 export function createApp() {
   const app = new Koa();
@@ -91,6 +93,8 @@ export function createApp() {
   router.use(categoriesRouter.routes()).use(categoriesRouter.allowedMethods());
   router.use(skusRouter.routes()).use(skusRouter.allowedMethods());
   router.use(salesRouter.routes()).use(salesRouter.allowedMethods());
+  router.use(staffInvitationsRouter.routes()).use(staffInvitationsRouter.allowedMethods());
+  router.use(usersRouter.routes()).use(usersRouter.allowedMethods());
   router.use(uploadsRouter.routes()).use(uploadsRouter.allowedMethods());
 
   app.use(router.routes()).use(router.allowedMethods());

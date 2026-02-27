@@ -127,6 +127,29 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
 });
 
+export const staffInvitations = pgTable("staff_invitations", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  inviterUserId: integer("inviter_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: userRoleEnum("role").notNull(),
+  branchId: integer("branch_id").references(() => branches.id, { onDelete: "set null" }),
+  token: varchar("token", { length: 255 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  acceptedUserId: integer("accepted_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 // Products & inventory
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
