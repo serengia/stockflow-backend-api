@@ -270,21 +270,20 @@ export async function listStockTransfers(params: {
 }): Promise<ListedStockTransfer[]> {
   const { businessId, branchId } = params;
 
-  const conditions = [eq(stockTransfers.businessId, businessId)];
-
-  if (typeof branchId === "number") {
-    conditions.push(
-      or(
-        eq(stockTransfers.fromBranchId, branchId),
-        eq(stockTransfers.toBranchId, branchId),
-      ),
-    );
-  }
-
   const transferRows = await db
     .select()
     .from(stockTransfers)
-    .where(and(...conditions))
+    .where(
+      typeof branchId === "number"
+        ? and(
+            eq(stockTransfers.businessId, businessId),
+            or(
+              eq(stockTransfers.fromBranchId, branchId),
+              eq(stockTransfers.toBranchId, branchId),
+            ),
+          )
+        : eq(stockTransfers.businessId, businessId),
+    )
     .orderBy(stockTransfers.createdAt);
 
   if (!transferRows.length) {
@@ -410,7 +409,6 @@ export async function updateStockTransferStatus(params: {
 
   const [transfer] = await listStockTransfers({
     businessId,
-    branchId: undefined,
   }).then((list) => list.filter((t) => t.id === id));
 
   if (!transfer) {

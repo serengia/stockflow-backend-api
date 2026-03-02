@@ -7,6 +7,7 @@ import { createSale, listSales } from "../services/sales.service.js";
 
 interface RequestWithBody {
   body?: unknown;
+  query?: Record<string, unknown>;
 }
 
 const saleItemSchema = z.object({
@@ -117,13 +118,20 @@ salesRouter.get("/", requireAuth, async (ctx: Context) => {
       toDate = d;
     }
   }
-
-  const items = await listSales({
+  const params: Parameters<typeof listSales>[0] = {
     businessId: user.businessId,
     branchId: branchId ?? null,
-    from: fromDate,
-    to: toDate,
-  });
+  };
+
+  if (fromDate) {
+    params.from = fromDate;
+  }
+
+  if (toDate) {
+    params.to = toDate;
+  }
+
+  const items = await listSales(params);
 
   ctx.status = 200;
   ctx.body = { data: items };

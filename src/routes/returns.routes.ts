@@ -104,13 +104,30 @@ returnsRouter.get("/", requireAuth, async (ctx: Context) => {
 
   const { saleId, from, to } = parsed.data;
 
-  const items = await returnsService.listReturns({
+  const params: Parameters<typeof returnsService.listReturns>[0] = {
     businessId: user.businessId,
     branchId: user.branchId ?? null,
-    saleId,
-    from: from ? new Date(from) : undefined,
-    to: to ? new Date(to) : undefined,
-  });
+  };
+
+  if (typeof saleId === "number") {
+    params.saleId = saleId;
+  }
+
+  if (from) {
+    const fromDate = new Date(from);
+    if (!Number.isNaN(fromDate.getTime())) {
+      params.from = fromDate;
+    }
+  }
+
+  if (to) {
+    const toDate = new Date(to);
+    if (!Number.isNaN(toDate.getTime())) {
+      params.to = toDate;
+    }
+  }
+
+  const items = await returnsService.listReturns(params);
 
   ctx.status = 200;
   ctx.body = { data: items };
@@ -157,7 +174,7 @@ returnsRouter.post("/", requireAuth, async (ctx: Context) => {
   const payload = parsed.data;
 
   try {
-    const created = await returnsService.createReturn({
+    const params: Parameters<typeof returnsService.createReturn>[0] = {
       businessId: user.businessId,
       branchId: payload.branchId ?? (user.branchId ?? null),
       userId: user.id,
@@ -166,10 +183,22 @@ returnsRouter.post("/", requireAuth, async (ctx: Context) => {
         productId: i.productId,
         quantity: i.quantity,
       })),
-      reason: payload.reason,
-      refundMethod: normalizePaymentMethod(payload.refundMethod),
-      referenceCode: payload.referenceCode ?? null,
-    });
+    };
+
+    if (payload.reason) {
+      params.reason = payload.reason;
+    }
+
+    const normalizedRefundMethod = normalizePaymentMethod(payload.refundMethod);
+    if (normalizedRefundMethod) {
+      params.refundMethod = normalizedRefundMethod;
+    }
+
+    if (payload.referenceCode !== undefined) {
+      params.referenceCode = payload.referenceCode;
+    }
+
+    const created = await returnsService.createReturn(params);
 
     ctx.status = 201;
     ctx.body = { data: created };

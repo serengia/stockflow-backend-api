@@ -55,13 +55,33 @@ auditRouter.get("/", requireAuth, async (ctx: Context) => {
 
   const { userId, action, from, to } = parsed.data;
 
-  const items = await auditService.listAuditLogs({
+  const params: Parameters<typeof auditService.listAuditLogs>[0] = {
     businessId: user.businessId,
-    userId,
-    action,
-    from: from ? new Date(from) : undefined,
-    to: to ? new Date(to) : undefined,
-  });
+  };
+
+  if (typeof userId === "number") {
+    params.userId = userId;
+  }
+
+  if (action && action.trim() !== "") {
+    params.action = action;
+  }
+
+  if (from) {
+    const fromDate = new Date(from);
+    if (!Number.isNaN(fromDate.getTime())) {
+      params.from = fromDate;
+    }
+  }
+
+  if (to) {
+    const toDate = new Date(to);
+    if (!Number.isNaN(toDate.getTime())) {
+      params.to = toDate;
+    }
+  }
+
+  const items = await auditService.listAuditLogs(params);
 
   ctx.status = 200;
   ctx.body = { data: items };

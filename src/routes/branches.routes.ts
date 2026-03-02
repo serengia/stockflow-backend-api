@@ -33,7 +33,12 @@ function firstIssueMessage(error: z.ZodError): string {
 
 export const branchesRouter = new Router({ prefix: "/branches" });
 
-branchesRouter.use(requireAuth as unknown as Router.Middleware<unknown, AuthState>);
+branchesRouter.use(
+  requireAuth as unknown as (
+    ctx: Context & { state: AuthState },
+    next: () => Promise<unknown>,
+  ) => Promise<unknown>,
+);
 
 branchesRouter.get("/", async (ctx: Context & { state: AuthState }) => {
   const { user } = ctx.state;
@@ -144,13 +149,24 @@ branchesRouter.patch("/:id", async (ctx: Context & { state: AuthState }) => {
 
   const { user } = ctx.state;
 
-  const branch = await branchesService.updateBranch({
+  const { name, code, active } = parsed.data;
+
+  const updateParams: Parameters<typeof branchesService.updateBranch>[0] = {
     id: branchId,
     businessId: user.businessId,
-    name: parsed.data.name,
-    code: parsed.data.code,
-    active: parsed.data.active,
-  });
+  };
+
+  if (typeof name === "string") {
+    updateParams.name = name;
+  }
+  if (typeof code === "string") {
+    updateParams.code = code;
+  }
+  if (typeof active === "boolean") {
+    updateParams.active = active;
+  }
+
+  const branch = await branchesService.updateBranch(updateParams);
 
   ctx.status = 200;
   ctx.body = {

@@ -67,13 +67,22 @@ suppliersRouter.post("/", requireAuth, async (ctx: Context) => {
 
   const payload = parsed.data;
 
-  const created = await suppliersService.createSupplier({
+  const params: Parameters<typeof suppliersService.createSupplier>[0] = {
     businessId: user.businessId,
     name: payload.name,
-    contact: payload.contact,
-    email: payload.email,
-    phone: payload.phone,
-  });
+  };
+
+  if (payload.contact !== undefined) {
+    params.contact = payload.contact;
+  }
+  if (payload.email !== undefined) {
+    params.email = payload.email;
+  }
+  if (payload.phone !== undefined) {
+    params.phone = payload.phone;
+  }
+
+  const created = await suppliersService.createSupplier(params);
 
   ctx.status = 201;
   ctx.body = { data: created };
@@ -102,14 +111,25 @@ suppliersRouter.patch("/:id", requireAuth, async (ctx: Context) => {
 
   const payload = parsed.data;
 
-  const updated = await suppliersService.updateSupplier({
+  const params: Parameters<typeof suppliersService.updateSupplier>[0] = {
     id,
     businessId: user.businessId,
-    name: payload.name,
-    contact: payload.contact,
-    email: payload.email,
-    phone: payload.phone,
-  });
+  };
+
+  if (payload.name !== undefined) {
+    params.name = payload.name;
+  }
+  if (payload.contact !== undefined) {
+    params.contact = payload.contact;
+  }
+  if (payload.email !== undefined) {
+    params.email = payload.email;
+  }
+  if (payload.phone !== undefined) {
+    params.phone = payload.phone;
+  }
+
+  const updated = await suppliersService.updateSupplier(params);
 
   ctx.status = 200;
   ctx.body = { data: updated };
