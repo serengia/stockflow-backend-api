@@ -3,7 +3,7 @@ import type { Context } from "koa";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import type { AuthUser } from "../services/auth.service.js";
-import { createSale } from "../services/sales.service.js";
+import { createSale, listSales } from "../services/sales.service.js";
 
 interface RequestWithBody {
   body?: unknown;
@@ -38,6 +38,25 @@ const createSaleSchema = z.object({
   offlineId: z.string().optional(),
 });
 
+const listQuerySchema = z.object({
+  from: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== "" ? v.trim() : undefined)),
+  to: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== "" ? v.trim() : undefined)),
+  branchId: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((v) => {
+      if (typeof v === "number") return v;
+      if (typeof v === "string" && v.trim() !== "") return Number(v);
+      return undefined;
+    }),
+});
+
 function firstIssueMessage(error: z.ZodError): string {
   const issue = error.issues[0];
   return (
@@ -57,6 +76,57 @@ function mapPaymentMethod(value: string): "cash" | "mpesa" | "bank_transfer" | "
 
 export const salesRouter = new Router({
   prefix: "/sales",
+});
+
+salesRouter.get("/", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  const query = (ctx.request as RequestWithBody).query ?? {};
+  const parsed = listQuerySchema.safeParse(query);
+
+  if (!parsed.success) {
+    ctx.status = 400;
+    const msg = firstIssueMessage(parsed.error);
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+
+  const { from, to, branchId: branchIdFromQuery } = parsed.data;
+
+  const branchId =
+    typeof branchIdFromQuery === "number"
+      ? branchIdFromQuery
+      : user.branchId != null
+      ? user.branchId
+      : undefined;
+
+  let fromDate: Date | undefined;
+  let toDate: Date | undefined;
+
+  if (from) {
+    const d = new Date(from);
+    if (!Number.isNaN(d.getTime())) {
+      fromDate = d;
+    }
+  }
+
+  if (to) {
+    const d = new Date(to);
+    if (!Number.isNaN(d.getTime())) {
+      // Include the entire "to" day by moving to the end of the day
+      d.setHours(23, 59, 59, 999);
+      toDate = d;
+    }
+  }
+
+  const items = await listSales({
+    businessId: user.businessId,
+    branchId: branchId ?? null,
+    from: fromDate,
+    to: toDate,
+  });
+
+  ctx.status = 200;
+  ctx.body = { data: items };
 });
 
 salesRouter.post("/", requireAuth, async (ctx: Context) => {

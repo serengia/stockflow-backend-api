@@ -64,6 +64,8 @@ export const branches = pgTable("branches", {
     .references(() => businesses.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   location: varchar("location", { length: 255 }),
+  code: varchar("code", { length: 100 }),
+  isActive: integer("is_active").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -162,6 +164,22 @@ export const products = pgTable("products", {
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 12, scale: 2 }).notNull(),
   status: productStatusEnum("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// Suppliers (per business)
+export const suppliers = pgTable("suppliers", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  contactName: varchar("contact_name", { length: 255 }),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -279,6 +297,41 @@ export const saleItems = pgTable("sale_items", {
   lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
 });
 
+// Returns linked to sales (for refunds and stock adjustments)
+export const returns = pgTable("returns", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  branchId: integer("branch_id")
+    .notNull()
+    .references(() => branches.id, { onDelete: "cascade" }),
+  saleId: integer("sale_id")
+    .notNull()
+    .references(() => sales.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "set null" }),
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).notNull(),
+  reason: text("reason"),
+  refundMethod: paymentMethodEnum("refund_method"),
+  referenceCode: varchar("reference_code", { length: 255 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const returnItems = pgTable("return_items", {
+  id: serial("id").primaryKey(),
+  returnId: integer("return_id")
+    .notNull()
+    .references(() => returns.id, { onDelete: "cascade" }),
+  productId: integer("product_id")
+    .notNull()
+    .references(() => products.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
+});
+
 // Cash register entries linked to sales
 export const cashRegisterEntries = pgTable("cash_register_entries", {
   id: serial("id").primaryKey(),
@@ -314,5 +367,35 @@ export const auditTrail = pgTable("audit_trail", {
   action: auditActionEnum("action").notNull(),
   description: text("description"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Stock transfers between branches
+export const stockTransfers = pgTable("stock_transfers", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  fromBranchId: integer("from_branch_id")
+    .notNull()
+    .references(() => branches.id, { onDelete: "cascade" }),
+  toBranchId: integer("to_branch_id")
+    .notNull()
+    .references(() => branches.id, { onDelete: "cascade" }),
+  createdByUserId: integer("created_by_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "set null" }),
+  status: varchar("status", { length: 50 }).notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const stockTransferItems = pgTable("stock_transfer_items", {
+  id: serial("id").primaryKey(),
+  transferId: integer("transfer_id")
+    .notNull()
+    .references(() => stockTransfers.id, { onDelete: "cascade" }),
+  productId: integer("product_id")
+    .notNull()
+    .references(() => products.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull(),
 });
 
