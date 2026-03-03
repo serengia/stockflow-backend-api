@@ -147,6 +147,71 @@ export async function createProduct(params: {
   };
 }
 
+export interface BulkProductRow {
+  name: string;
+  sku?: string | null;
+  category?: string | null;
+  costPrice: number;
+  sellPrice: number;
+  quantity?: number;
+  reorderLevel?: number;
+}
+
+export interface BulkCreateResult {
+  created: number;
+  errors: Array<{ row: number; message: string }>;
+}
+
+export async function bulkCreateProducts(params: {
+  businessId: number;
+  branchId?: number | null;
+  userId: number;
+  products: BulkProductRow[];
+}): Promise<BulkCreateResult> {
+  const { businessId, branchId, userId, products: rows } = params;
+  const result: BulkCreateResult = { created: 0, errors: [] };
+
+  for (const [i, row] of rows.entries()) {
+    const rowNum = i + 1;
+    try {
+      if (!row.name || String(row.name).trim() === "") {
+        result.errors.push({ row: rowNum, message: "Name is required" });
+        continue;
+      }
+      const costPrice = Number(row.costPrice);
+      const sellPrice = Number(row.sellPrice);
+      if (!Number.isFinite(costPrice) || costPrice < 0) {
+        result.errors.push({ row: rowNum, message: "Invalid cost price" });
+        continue;
+      }
+      if (!Number.isFinite(sellPrice) || sellPrice < 0) {
+        result.errors.push({ row: rowNum, message: "Invalid sell price" });
+        continue;
+      }
+      await createProduct({
+        businessId,
+        branchId: branchId ?? null,
+        userId,
+        name: String(row.name).trim(),
+        sku: row.sku != null ? String(row.sku).trim() || null : null,
+        category: row.category != null ? String(row.category).trim() || null : null,
+        costPrice,
+        sellPrice,
+        ...(typeof row.quantity === "number" && { quantity: row.quantity }),
+        ...(typeof row.reorderLevel === "number" && {
+          reorderLevel: row.reorderLevel,
+        }),
+      });
+      result.created += 1;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create product";
+      result.errors.push({ row: rowNum, message });
+    }
+  }
+
+  return result;
+}
+
 export async function updateProduct(params: {
   id: number;
   businessId: number;

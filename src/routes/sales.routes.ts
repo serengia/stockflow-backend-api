@@ -18,6 +18,11 @@ const saleItemSchema = z.object({
   unitPrice: z.coerce.number().min(0),
 });
 
+const paymentSplitSchema = z.object({
+  paymentMethod: z.string().min(1),
+  amount: z.coerce.number().min(0),
+});
+
 const createSaleSchema = z.object({
   items: z.array(saleItemSchema).min(1),
   subtotal: z.coerce.number().optional(),
@@ -26,8 +31,10 @@ const createSaleSchema = z.object({
   totalAmount: z.coerce.number().optional(),
   discountType: z.string().optional(),
   promoCode: z.string().optional(),
-  paymentMethod: z.string().min(1),
+  paymentMethod: z.string().min(1).optional(),
+  payments: z.array(paymentSplitSchema).optional(),
   referenceCode: z.string().optional(),
+  customerName: z.string().optional(),
   branchId: z
     .union([z.number(), z.string()])
     .optional()
@@ -72,6 +79,7 @@ function mapPaymentMethod(value: string): "cash" | "mpesa" | "bank_transfer" | "
   if (v === "mpesa" || v === "m-pesa" || v === "m pesa") return "mpesa";
   if (v === "card") return "card";
   if (v === "bank" || v === "bank_transfer" || v === "bank transfer") return "bank_transfer";
+  if (v === "credit" || v === "on credit") return "other";
   return "other";
 }
 
@@ -175,8 +183,35 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
           0,
         );
 
+  const payments = data.payments;
+  const singlePaymentMethod = data.paymentMethod;
+  if (payments && payments.length > 0) {
+    const sum = payments.reduce((s, p) => s + p.amount, 0);
+    if (Math.abs(sum - computedTotal) > 0.01) {
+      ctx.status = 400;
+      ctx.body = {
+        message: "Split payments total must equal sale total",
+        error: { message: "Split payments total must equal sale total" },
+      };
+      return;
+    }
+  } else if (!singlePaymentMethod || singlePaymentMethod.trim() === "") {
+    ctx.status = 400;
+    ctx.body = {
+      message: "Payment method or split payments is required",
+      error: { message: "Payment method or split payments is required" },
+    };
+    return;
+  }
+
+  const referenceCode =
+    data.referenceCode?.trim() ||
+    (data.customerName?.trim() ? `Customer: ${data.customerName.trim()}` : null);
+
   try {
-    const created = await createSale({
+    const hasSplitPayments = Array.isArray(payments) && payments.length > 0;
+
+    const createParams: Parameters<typeof createSale>[0] = {
       businessId: user.businessId,
       branchId,
       userId: user.id,
@@ -186,10 +221,21 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
         unitPrice: i.unitPrice,
       })),
       totalAmount: computedTotal,
-      paymentMethod: mapPaymentMethod(data.paymentMethod),
-      referenceCode: data.referenceCode ?? null,
+      paymentMethod: hasSplitPayments
+        ? mapPaymentMethod(payments[0]!.paymentMethod)
+        : mapPaymentMethod(singlePaymentMethod!),
+      referenceCode: referenceCode ?? null,
       offlineId: data.offlineId ?? null,
-    });
+    };
+
+    if (hasSplitPayments) {
+      createParams.payments = payments.map((p) => ({
+        paymentMethod: mapPaymentMethod(p.paymentMethod),
+        amount: p.amount,
+      }));
+    }
+
+    const created = await createSale(createParams);
 
     ctx.status = 201;
     ctx.body = {

@@ -1,6 +1,7 @@
 import { and, eq, gte, lte, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { sales, saleItems, cashRegisterEntries, stockLevels, stockMovements, products } from "../db/schema/schema.js";
+import { recordAuditLog } from "./audit.service.js";
 
 type DbSale = typeof sales.$inferSelect;
 
@@ -17,6 +18,7 @@ export interface CreateSaleParams {
   items: CreateSaleItemInput[];
   totalAmount: number;
   paymentMethod: "cash" | "mpesa" | "bank_transfer" | "card" | "other";
+  payments?: Array<{ paymentMethod: "cash" | "mpesa" | "bank_transfer" | "card" | "other"; amount: number }>;
   referenceCode?: string | null;
   offlineId?: string | null;
 }
@@ -57,6 +59,7 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
     items,
     totalAmount,
     paymentMethod,
+    payments,
     referenceCode,
     offlineId,
   } = params;
@@ -115,19 +118,55 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
         .limit(1);
 
       if (existingLevel) {
+        const previousQty = existingLevel.quantity;
+        const newQty = existingLevel.quantity - item.quantity;
         await tx
           .update(stockLevels)
           .set({
-            quantity: existingLevel.quantity - item.quantity,
+            quantity: newQty,
             updatedAt: new Date(),
           })
           .where(eq(stockLevels.id, existingLevel.id));
+        await recordAuditLog({
+          businessId,
+          userId,
+          entityType: "stock",
+          entityId: item.productId,
+          action: "stock_change",
+          changes: {
+            productId: item.productId,
+            branchId,
+            saleId: saleRow.id,
+            quantity: {
+              from: previousQty,
+              to: newQty,
+              delta: -item.quantity,
+            },
+          },
+        });
       } else {
         await tx.insert(stockLevels).values({
           businessId,
           branchId,
           productId: item.productId,
           quantity: -item.quantity,
+        });
+        await recordAuditLog({
+          businessId,
+          userId,
+          entityType: "stock",
+          entityId: item.productId,
+          action: "stock_change",
+          changes: {
+            productId: item.productId,
+            branchId,
+            saleId: saleRow.id,
+            quantity: {
+              from: 0,
+              to: -item.quantity,
+              delta: -item.quantity,
+            },
+          },
         });
       }
 
@@ -142,15 +181,29 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
       });
     }
 
-    await tx.insert(cashRegisterEntries).values({
-      businessId,
-      branchId,
-      saleId: saleRow.id,
-      paymentMethod,
-      referenceCode: referenceCode ?? null,
-      amount: totalAmountStr,
-      recordedByUserId: userId,
-    });
+    if (payments && payments.length > 0) {
+      for (const p of payments) {
+        await tx.insert(cashRegisterEntries).values({
+          businessId,
+          branchId,
+          saleId: saleRow.id,
+          paymentMethod: p.paymentMethod,
+          referenceCode: referenceCode ?? null,
+          amount: p.amount.toFixed(2),
+          recordedByUserId: userId,
+        });
+      }
+    } else {
+      await tx.insert(cashRegisterEntries).values({
+        businessId,
+        branchId,
+        saleId: saleRow.id,
+        paymentMethod,
+        referenceCode: referenceCode ?? null,
+        amount: totalAmountStr,
+        recordedByUserId: userId,
+      });
+    }
 
     return {
       id: saleRow.id,

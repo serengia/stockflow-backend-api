@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import type { AuthUser } from "../services/auth.service.js";
 import * as productsService from "../services/products.service.js";
+import { recordAuditLog } from "../services/audit.service.js";
 
 interface RequestWithBody {
   body?: unknown;
@@ -115,8 +116,83 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
     ...(payload.reorderLevel !== undefined && { reorderLevel: payload.reorderLevel }),
   });
 
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "product",
+    entityId: created.id,
+    action: "create",
+    changes: {
+      productId: created.id,
+      name: { to: created.name },
+      sku: { to: created.sku },
+      category: { to: created.category },
+      costPrice: { to: created.costPrice },
+      sellPrice: { to: created.sellPrice },
+      quantity: { to: created.quantity },
+      reorderLevel: { to: created.reorderLevel },
+    },
+  });
+
   ctx.status = 201;
   ctx.body = { data: created };
+});
+
+const bulkProductRowSchema = z.object({
+  name: z.string().min(1),
+  sku: z.string().optional(),
+  category: z.string().optional(),
+  costPrice: z.coerce.number().min(0),
+  sellPrice: z.coerce.number().min(0),
+  quantity: z.coerce.number().int().min(0).optional(),
+  reorderLevel: z.coerce.number().int().min(0).optional(),
+});
+
+const bulkCreateSchema = z.object({
+  products: z.array(bulkProductRowSchema).min(1).max(500),
+});
+
+// POST /api/v1/products/bulk
+productsRouter.post("/bulk", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  const body = (ctx.request as RequestWithBody).body;
+  const parsed = bulkCreateSchema.safeParse(body);
+
+  if (!parsed.success) {
+    ctx.status = 400;
+    const msg = firstIssueMessage(parsed.error);
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+
+  const rows: productsService.BulkProductRow[] = parsed.data.products.map((row) => ({
+    name: row.name,
+    costPrice: row.costPrice,
+    sellPrice: row.sellPrice,
+    ...(row.sku !== undefined && { sku: row.sku ?? null }),
+    ...(row.category !== undefined && { category: row.category ?? null }),
+    ...(row.quantity !== undefined && { quantity: row.quantity }),
+    ...(row.reorderLevel !== undefined && { reorderLevel: row.reorderLevel }),
+  }));
+
+  const result = await productsService.bulkCreateProducts({
+    businessId: user.businessId,
+    branchId: user.branchId ?? null,
+    userId: user.id,
+    products: rows,
+  });
+
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "product",
+    entityId: "bulk",
+    action: "create",
+    description: `Bulk import: ${result.created} created, ${result.errors.length} errors`,
+  });
+
+  ctx.status = 200;
+  ctx.body = { data: result };
 });
 
 // PATCH /api/v1/products/:id
@@ -155,6 +231,38 @@ productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
     ...(payload.reorderLevel !== undefined && { reorderLevel: payload.reorderLevel }),
   });
 
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "product",
+    entityId: updated.id,
+    action: "update",
+    changes: {
+      productId: updated.id,
+      ...(payload.name !== undefined && {
+        name: { to: updated.name },
+      }),
+      ...(payload.sku !== undefined && {
+        sku: { to: updated.sku },
+      }),
+      ...(payload.category !== undefined && {
+        category: { to: updated.category },
+      }),
+      ...(payload.costPrice !== undefined && {
+        costPrice: { to: updated.costPrice },
+      }),
+      ...(payload.sellPrice !== undefined && {
+        sellPrice: { to: updated.sellPrice },
+      }),
+      ...(payload.quantity !== undefined && {
+        quantity: { to: updated.quantity },
+      }),
+      ...(payload.reorderLevel !== undefined && {
+        reorderLevel: { to: updated.reorderLevel },
+      }),
+    },
+  });
+
   ctx.status = 200;
   ctx.body = { data: updated };
 });
@@ -172,6 +280,18 @@ productsRouter.delete("/:id", requireAuth, async (ctx: Context) => {
   await productsService.deleteProduct({
     id,
     businessId: user.businessId,
+  });
+
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "product",
+    entityId: id,
+    action: "delete",
+    changes: {
+      productId: id,
+      deleted: true,
+    },
   });
 
   ctx.status = 204;

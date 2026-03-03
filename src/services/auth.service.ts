@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "../db/index.js";
 import { users, authProviders, businesses, branches } from "../db/schema/schema.js";
+import { recordAuditLog } from "./audit.service.js";
 type DbUser = typeof users.$inferSelect;
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
@@ -140,6 +141,16 @@ export async function login(
     branchId: user.branchId,
   });
   const refreshToken = await signRefreshToken({ sub: String(user.id) });
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "auth",
+    entityId: user.id,
+    action: "login",
+    changes: {
+      message: "User logged in with email and password",
+    },
+  });
   return { user: toAuthUser(user), token, refreshToken };
 }
 
@@ -234,6 +245,16 @@ export async function loginWithGoogle(
       branchId: user.branchId,
     });
     const refreshToken = await signRefreshToken({ sub: String(user.id) });
+    await recordAuditLog({
+      businessId: user.businessId,
+      userId: user.id,
+      entityType: "auth",
+      entityId: user.id,
+      action: "login",
+      changes: {
+        message: "User logged in with Google",
+      },
+    });
     return { user: toAuthUser(user), token, refreshToken };
   }
 
@@ -328,6 +349,17 @@ export async function loginWithGoogle(
 
   sendWelcomeEmail({ to: user.email, name: user.name }).catch((err) => {
     console.error("[auth] Welcome email failed (Google sign-up):", err);
+  });
+
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "auth",
+    entityId: user.id,
+    action: "login",
+    changes: {
+      message: "User signed up and logged in with Google",
+    },
   });
 
   return { user: toAuthUser(user), token, refreshToken };

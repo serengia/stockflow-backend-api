@@ -12,10 +12,23 @@ export interface ListedAuditLog {
   entity: string;
   entityId: string;
   description: string | null;
+  changes: Record<string, unknown> | null;
   timestamp: DbAudit["createdAt"];
 }
 
 function toListedAudit(row: DbAudit & { userName: string | null }): ListedAuditLog {
+  let parsedChanges: Record<string, unknown> | null = null;
+  if (row.description) {
+    try {
+      const maybeJson = JSON.parse(row.description);
+      if (maybeJson && typeof maybeJson === "object") {
+        parsedChanges = maybeJson as Record<string, unknown>;
+      }
+    } catch {
+      // description is plain text; ignore JSON parsing failure
+    }
+  }
+
   return {
     id: row.id,
     userId: row.userId,
@@ -24,6 +37,7 @@ function toListedAudit(row: DbAudit & { userName: string | null }): ListedAuditL
     entity: row.entityType,
     entityId: row.entityId,
     description: row.description ?? null,
+    changes: parsedChanges,
     timestamp: row.createdAt,
   };
 }
@@ -49,6 +63,12 @@ export async function listAuditLogs(params: {
       conditions.push(eq(auditTrail.action, "login"));
     } else if (normalized === "stock_change") {
       conditions.push(eq(auditTrail.action, "stock_change"));
+    } else if (normalized === "create") {
+      conditions.push(eq(auditTrail.action, "create"));
+    } else if (normalized === "update") {
+      conditions.push(eq(auditTrail.action, "update"));
+    } else if (normalized === "delete") {
+      conditions.push(eq(auditTrail.action, "delete"));
     }
   }
 
@@ -78,5 +98,38 @@ export async function listAuditLogs(params: {
     .orderBy(auditTrail.createdAt);
 
   return rows.map(toListedAudit);
+}
+
+export async function recordAuditLog(params: {
+  businessId: number;
+  userId: number;
+  entityType: string;
+  entityId: string | number;
+  action: DbAudit["action"];
+  description?: string | null;
+  changes?: Record<string, unknown> | null;
+}): Promise<void> {
+  const { businessId, userId, entityType, entityId, action, description, changes } = params;
+
+  let descriptionToStore: string | null = null;
+
+  if (changes && Object.keys(changes).length > 0) {
+    try {
+      descriptionToStore = JSON.stringify(changes);
+    } catch {
+      descriptionToStore = description ?? null;
+    }
+  } else {
+    descriptionToStore = description ?? null;
+  }
+
+  await db.insert(auditTrail).values({
+    businessId,
+    userId,
+    entityType,
+    entityId: String(entityId),
+    action,
+    description: descriptionToStore,
+  });
 }
 
