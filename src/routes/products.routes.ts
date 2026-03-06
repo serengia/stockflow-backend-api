@@ -91,6 +91,11 @@ productsRouter.get("/", requireAuth, async (ctx: Context) => {
 // POST /api/v1/products
 productsRouter.post("/", requireAuth, async (ctx: Context) => {
   const user = ctx.state.user as AuthUser;
+  const query = (ctx.request as RequestWithBody).query ?? {};
+  const parsedQuery = listQuerySchema
+    .pick({ branchId: true })
+    .safeParse(query);
+
   const body = (ctx.request as RequestWithBody).body;
   const parsed = productBodySchema.safeParse(body);
 
@@ -103,9 +108,18 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
 
   const payload = parsed.data;
 
+  const branchIdFromQuery =
+    parsedQuery.success && typeof parsedQuery.data.branchId === "number"
+      ? parsedQuery.data.branchId
+      : undefined;
+  const branchId =
+    typeof branchIdFromQuery === "number"
+      ? branchIdFromQuery
+      : user.branchId ?? null;
+
   const created = await productsService.createProduct({
     businessId: user.businessId,
-    branchId: user.branchId ?? null,
+    branchId,
     userId: user.id,
     name: payload.name,
     sku: payload.sku ?? null,
@@ -372,6 +386,11 @@ productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
     return;
   }
 
+  const query = (ctx.request as RequestWithBody).query ?? {};
+  const parsedQuery = listQuerySchema
+    .pick({ branchId: true })
+    .safeParse(query);
+
   const body = (ctx.request as RequestWithBody).body;
   const parsed = productBodySchema.partial().safeParse(body);
 
@@ -384,10 +403,19 @@ productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
 
   const payload = parsed.data;
 
+  const branchIdFromQuery =
+    parsedQuery.success && typeof parsedQuery.data.branchId === "number"
+      ? parsedQuery.data.branchId
+      : undefined;
+  const branchId =
+    typeof branchIdFromQuery === "number"
+      ? branchIdFromQuery
+      : user.branchId ?? null;
+
   const updated = await productsService.updateProduct({
     id,
     businessId: user.businessId,
-    branchId: user.branchId ?? null,
+    branchId,
     userId: user.id,
     ...(payload.name !== undefined && { name: payload.name }),
     ...(payload.sku !== undefined && { sku: payload.sku ?? null }),
