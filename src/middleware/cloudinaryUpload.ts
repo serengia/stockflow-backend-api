@@ -11,6 +11,18 @@ export const multipartBody = koaBody({
   },
 }) as unknown as Middleware;
 
+/** Eager transformation for profile avatars: resize and compress. */
+export const AVATAR_EAGER = [
+  {
+    width: 400,
+    height: 400,
+    crop: "fill",
+    gravity: "face",
+    quality: "auto:good",
+    fetch_format: "auto",
+  },
+];
+
 type CloudinaryUploadOptions = {
   /**
    * Name of the file input field in the multipart form.
@@ -22,6 +34,11 @@ type CloudinaryUploadOptions = {
    * Can be a static string or derived dynamically from the request context.
    */
   folder: string | ((ctx: Context) => string);
+  /**
+   * Optional eager transformations. If provided, the first transformation's secure_url
+   * is used (e.g. for profile avatars to store a compressed 400x400 version).
+   */
+  eager?: Array<Record<string, unknown>>;
 };
 
 declare module "koa" {
@@ -37,7 +54,7 @@ declare module "koa" {
 export function createCloudinaryUploadMiddleware(
   options: CloudinaryUploadOptions,
 ): Middleware {
-  const { fieldName, folder } = options;
+  const { fieldName, folder, eager } = options;
 
   const middleware: Middleware = async (ctx, next) => {
     const anyCtx = ctx as any;
@@ -56,19 +73,23 @@ export function createCloudinaryUploadMiddleware(
 
     const folderValue = typeof folder === "function" ? folder(ctx) : folder;
 
-    const result = await cloudinary.uploader.upload(fileObj.filepath, {
+    const uploadOptions: Record<string, unknown> = {
       folder: folderValue,
-      // Basic compression / optimization
-      transformation: [
-        {
-          quality: "auto:good",
-          fetch_format: "auto",
-        },
-      ],
-    });
+      quality: "auto:good",
+      fetch_format: "auto",
+    };
+    if (eager && eager.length > 0) {
+      uploadOptions.eager = eager;
+    }
+
+    const result = await cloudinary.uploader.upload(fileObj.filepath, uploadOptions as any);
+
+    // If eager was used, prefer the first eager URL (resized/compressed); otherwise use original.
+    const url =
+      result.eager?.[0]?.secure_url ?? result.secure_url;
 
     ctx.state.uploadedFile = {
-      url: result.secure_url,
+      url,
       publicId: result.public_id,
       resourceType: result.resource_type,
     };

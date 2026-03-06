@@ -18,7 +18,77 @@ const updateUserBody = z.object({
   active: z.boolean().optional(),
 });
 
+const updateMeBody = z.object({
+  name: z.string().min(1).max(255).optional(),
+  phoneNumber: z.string().min(3).max(50).optional(),
+});
+
 export const usersRouter = new Router({ prefix: "/users" });
+
+// PATCH /users/update-me — update current user's profile (name; phoneNumber not stored on users yet)
+usersRouter.patch("/update-me", requireAuth, async (ctx: Context) => {
+  const current = ctx.state.user as AuthUser;
+  const body = (ctx.request as RequestWithBody).body;
+  const parsed = updateMeBody.safeParse(body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message ?? "Validation failed";
+    ctx.status = 400;
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+  const patch: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+  if (parsed.data.name != null) patch.name = parsed.data.name.trim();
+  // phoneNumber not on users table; ignore for now
+
+  if (Object.keys(patch).length <= 1) {
+    const [existing] = await db.select().from(users).where(eq(users.id, current.id)).limit(1);
+    ctx.status = 200;
+    ctx.body = {
+      message: "No changes",
+      data: {
+        user: existing
+          ? {
+              id: String(existing.id),
+              name: existing.name,
+              email: existing.email,
+              role: existing.role,
+              businessId: existing.businessId,
+              branchId: existing.branchId,
+              avatarUrl: existing.avatarUrl ?? null,
+            }
+          : undefined,
+      },
+    };
+    return;
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set(patch)
+    .where(eq(users.id, current.id))
+    .returning();
+
+  if (!updated) {
+    ctx.status = 500;
+    ctx.body = { message: "Update failed", error: { message: "Update failed" } };
+    return;
+  }
+  ctx.status = 200;
+  ctx.body = {
+    message: "Profile updated",
+    data: {
+      user: {
+        id: String(updated.id),
+        name: updated.name,
+        email: updated.email,
+        role: updated.role,
+        businessId: updated.businessId,
+        branchId: updated.branchId,
+        avatarUrl: updated.avatarUrl ?? null,
+      },
+    },
+  };
+});
 
 // GET /users - list all users for the current business
 usersRouter.get("/", requireAuth, async (ctx: Context) => {

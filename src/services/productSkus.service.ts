@@ -7,14 +7,12 @@ type DbSku = typeof productSkus.$inferSelect;
 export interface Sku {
   id: number;
   code: string;
-  reorderLevel: number;
 }
 
 function toSku(row: DbSku): Sku {
   return {
     id: row.id,
     code: row.code,
-    reorderLevel: row.reorderLevel,
   };
 }
 
@@ -31,7 +29,6 @@ export async function listSkus(params: { businessId: number }): Promise<Sku[]> {
 export async function createSku(params: {
   businessId: number;
   code: string;
-  reorderLevel?: number;
 }): Promise<Sku> {
   const code = params.code.trim().toUpperCase();
   if (!code) {
@@ -62,10 +59,6 @@ export async function createSku(params: {
     .values({
       businessId: params.businessId,
       code,
-      reorderLevel:
-        typeof params.reorderLevel === "number" && params.reorderLevel >= 0
-          ? params.reorderLevel
-          : 10,
     })
     .returning();
 
@@ -82,7 +75,6 @@ export async function updateSku(params: {
   id: number;
   businessId: number;
   code?: string;
-  reorderLevel?: number;
 }): Promise<Sku> {
   const [existing] = await db
     .select()
@@ -129,10 +121,6 @@ export async function updateSku(params: {
     }
 
     updateData.code = code;
-  }
-
-  if (typeof params.reorderLevel === "number" && params.reorderLevel >= 0) {
-    updateData.reorderLevel = params.reorderLevel;
   }
 
   if (Object.keys(updateData).length === 0) {

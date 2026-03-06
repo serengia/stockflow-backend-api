@@ -397,11 +397,20 @@ export async function refreshTokens(refreshToken: string): Promise<{
 }
 
 export async function getMe(userId: number): Promise<AuthUser | null> {
-  const [user] = await db
-    .select()
+  const [row] = await db
+    .select({
+      user: users,
+      businessStatus: businesses.status,
+    })
     .from(users)
+    .innerJoin(businesses, eq(users.businessId, businesses.id))
     .where(eq(users.id, userId))
     .limit(1);
-  if (!user || user.isActive !== 1) return null;
-  return toAuthUser(user);
+
+  if (!row || row.user.isActive !== 1) return null;
+  if (row.businessStatus && row.businessStatus !== "active") {
+    return null;
+  }
+
+  return toAuthUser(row.user);
 }

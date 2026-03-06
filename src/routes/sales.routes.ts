@@ -11,9 +11,21 @@ interface RequestWithBody {
 }
 
 const saleItemSchema = z.object({
-  productId: z
-    .union([z.number(), z.string()])
-    .transform((v) => (typeof v === "number" ? v : Number(v))),
+  productId: z.preprocess(
+    (raw) => {
+      if (typeof raw === "number") {
+        return Number.isInteger(raw) && raw > 0 ? raw : undefined;
+      }
+      if (typeof raw === "string") {
+        const trimmed = raw.trim();
+        if (trimmed === "") return undefined;
+        const n = Number(trimmed);
+        return Number.isInteger(n) && n > 0 ? n : undefined;
+      }
+      return undefined;
+    },
+    z.number().int().positive({ message: "Invalid product id" }),
+  ),
   quantity: z.coerce.number().int().min(1),
   unitPrice: z.coerce.number().min(0),
 });
@@ -39,8 +51,13 @@ const createSaleSchema = z.object({
     .union([z.number(), z.string()])
     .optional()
     .transform((v) => {
-      if (typeof v === "number") return v;
-      if (typeof v === "string" && v.trim() !== "") return Number(v);
+      if (typeof v === "number") {
+        return Number.isNaN(v) || v <= 0 ? undefined : v;
+      }
+      if (typeof v === "string" && v.trim() !== "") {
+        const n = Number(v);
+        return Number.isNaN(n) || n <= 0 ? undefined : n;
+      }
       return undefined;
     }),
   offlineId: z.string().optional(),
@@ -151,6 +168,12 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
   const parsed = createSaleSchema.safeParse(body);
 
   if (!parsed.success) {
+    // TEMP DEBUG: log validation issues for create sale (remove after debugging)
+    // Location to remove later: backend-api-new/src/routes/sales.routes.ts (around validation failure branch).
+    console.error("[sales:create] validation failed", {
+      issues: parsed.error.issues,
+      body,
+    });
     ctx.status = 400;
     const msg = firstIssueMessage(parsed.error);
     ctx.body = { message: msg, error: { message: msg } };
@@ -167,6 +190,13 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
       : undefined;
 
   if (!branchId) {
+    // TEMP DEBUG: log missing branch information for create sale (remove after debugging)
+    // Location to remove later: backend-api-new/src/routes/sales.routes.ts (branch guard).
+    console.error("[sales:create] missing branchId", {
+      body,
+      parsedData: data,
+      userBranchId: user.branchId,
+    });
     ctx.status = 400;
     ctx.body = {
       message: "Branch is required for a sale",
@@ -188,6 +218,13 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
   if (payments && payments.length > 0) {
     const sum = payments.reduce((s, p) => s + p.amount, 0);
     if (Math.abs(sum - computedTotal) > 0.01) {
+      // TEMP DEBUG: log mismatch between split payments and total (remove after debugging)
+      // Location to remove later: backend-api-new/src/routes/sales.routes.ts (split payments check).
+      console.error("[sales:create] split payments total mismatch", {
+        computedTotal,
+        payments,
+        sum,
+      });
       ctx.status = 400;
       ctx.body = {
         message: "Split payments total must equal sale total",
@@ -196,6 +233,12 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
       return;
     }
   } else if (!singlePaymentMethod || singlePaymentMethod.trim() === "") {
+    // TEMP DEBUG: log missing payment method (remove after debugging)
+    // Location to remove later: backend-api-new/src/routes/sales.routes.ts (payment guard).
+    console.error("[sales:create] missing payment method", {
+      body,
+      parsedData: data,
+    });
     ctx.status = 400;
     ctx.body = {
       message: "Payment method or split payments is required",
@@ -246,6 +289,14 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
       },
     };
   } catch (error) {
+    // TEMP DEBUG: log unexpected errors during sale creation (remove after debugging)
+    // Location to remove later: backend-api-new/src/routes/sales.routes.ts (catch block).
+    console.error("[sales:create] unexpected error", {
+      error,
+      body,
+      userId: user.id,
+      branchId,
+    });
     const err = error as Error & { status?: number };
     const status = typeof err.status === "number" ? err.status : 500;
     ctx.status = status;

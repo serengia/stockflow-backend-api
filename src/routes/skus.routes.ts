@@ -11,7 +11,6 @@ interface RequestWithBody {
 
 const skuBodySchema = z.object({
   code: z.string().min(1, "Code is required"),
-  reorderLevel: z.coerce.number().int().min(0).optional(),
 });
 
 function firstIssueMessage(error: z.ZodError): string {
@@ -51,7 +50,6 @@ skusRouter.post("/", requireAuth, async (ctx: Context) => {
   const created = await skusService.createSku({
     businessId: user.businessId,
     code: parsed.data.code,
-    ...(parsed.data.reorderLevel !== undefined && { reorderLevel: parsed.data.reorderLevel }),
   });
 
   ctx.status = 201;
@@ -82,7 +80,6 @@ skusRouter.patch("/:id", requireAuth, async (ctx: Context) => {
     id,
     businessId: user.businessId,
     ...(parsed.data.code !== undefined && { code: parsed.data.code }),
-    ...(parsed.data.reorderLevel !== undefined && { reorderLevel: parsed.data.reorderLevel }),
   });
 
   ctx.status = 200;

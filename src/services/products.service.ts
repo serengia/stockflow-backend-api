@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { products, stockLevels, productSkus } from "../db/schema/schema.js";
+import { products, stockLevels } from "../db/schema/schema.js";
+import { cloudinary } from "../lib/cloudinary.js";
 
 type DbProduct = typeof products.$inferSelect;
 type DbStockLevel = typeof stockLevels.$inferSelect;
-type DbSku = typeof productSkus.$inferSelect;
 
 export interface InventoryProduct {
   id: number;
@@ -16,12 +16,12 @@ export interface InventoryProduct {
   status: DbProduct["status"];
   quantity: number;
   reorderLevel: number;
+  imageUrl: string | null;
 }
 
 function toInventoryProduct(row: {
   product: DbProduct;
   stockLevel: DbStockLevel | null;
-  sku: DbSku | null;
 }): InventoryProduct {
   return {
     id: row.product.id,
@@ -32,7 +32,8 @@ function toInventoryProduct(row: {
     sellPrice: row.product.sellPrice,
     status: row.product.status,
     quantity: row.stockLevel?.quantity ?? 0,
-    reorderLevel: row.sku?.reorderLevel ?? 10,
+    reorderLevel: row.product.reorderLevel ?? 10,
+    imageUrl: row.product.imageUrl ?? null,
   };
 }
 
@@ -41,11 +42,6 @@ export async function listProducts(params: {
   branchId?: number | null;
 }): Promise<InventoryProduct[]> {
   const { businessId, branchId } = params;
-
-  const skuJoinOn = and(
-    eq(productSkus.businessId, products.businessId),
-    eq(productSkus.code, products.sku),
-  );
 
   const joinOn =
     branchId != null
@@ -63,11 +59,9 @@ export async function listProducts(params: {
     .select({
       product: products,
       stockLevel: stockLevels,
-      sku: productSkus,
     })
     .from(products)
     .leftJoin(stockLevels, joinOn)
-    .leftJoin(productSkus, skuJoinOn)
     .where(eq(products.businessId, businessId))
     .orderBy(products.name);
 
@@ -83,7 +77,7 @@ export async function createProduct(params: {
   category?: string | null;
   costPrice: number;
   sellPrice: number;
-  quantity?: number;
+  quantity: number;
   reorderLevel?: number;
 }): Promise<InventoryProduct> {
   const {
@@ -99,6 +93,9 @@ export async function createProduct(params: {
     reorderLevel,
   } = params;
 
+  const reorderLevelValue =
+    typeof reorderLevel === "number" && reorderLevel >= 0 ? reorderLevel : 10;
+
   const [product] = await db
     .insert(products)
     .values({
@@ -108,6 +105,7 @@ export async function createProduct(params: {
       category: category?.trim() || null,
       costPrice: costPrice.toString(),
       sellPrice: sellPrice.toString(),
+      reorderLevel: reorderLevelValue,
       status: "active",
     })
     .returning();
@@ -119,9 +117,9 @@ export async function createProduct(params: {
   }
 
   let stockLevel: DbStockLevel | null = null;
-  const initialQty = typeof quantity === "number" && quantity > 0 ? quantity : 0;
+  const initialQty = typeof quantity === "number" && quantity >= 0 ? quantity : 0;
 
-  if (branchId != null && initialQty > 0) {
+  if (branchId != null) {
     const [level] = await db
       .insert(stockLevels)
       .values({
@@ -143,7 +141,8 @@ export async function createProduct(params: {
     sellPrice: product.sellPrice,
     status: product.status,
     quantity: stockLevel?.quantity ?? 0,
-    reorderLevel: typeof reorderLevel === "number" ? reorderLevel : 10,
+    reorderLevel: product.reorderLevel ?? 10,
+    imageUrl: product.imageUrl ?? null,
   };
 }
 
@@ -153,13 +152,23 @@ export interface BulkProductRow {
   category?: string | null;
   costPrice: number;
   sellPrice: number;
-  quantity?: number;
+  quantity: number;
   reorderLevel?: number;
 }
 
 export interface BulkCreateResult {
   created: number;
   errors: Array<{ row: number; message: string }>;
+}
+
+export interface OrganizeSummary {
+  uncategorizedCount: number;
+  missingSkuCount: number;
+}
+
+export interface BulkOrganizeResult {
+  updated: number;
+  errors: Array<{ id: number; message: string }>;
 }
 
 export async function bulkCreateProducts(params: {
@@ -171,41 +180,186 @@ export async function bulkCreateProducts(params: {
   const { businessId, branchId, userId, products: rows } = params;
   const result: BulkCreateResult = { created: 0, errors: [] };
 
+  // Preload existing product names so we can prevent accidental duplicates
+  // when the same file is imported multiple times or contains repeated names.
+  const existingNameRows = await db
+    .select({ name: products.name })
+    .from(products)
+    .where(eq(products.businessId, businessId));
+
+  const existingNames = new Set(
+    existingNameRows
+      .map((p) => (p.name ?? "").trim().toLowerCase())
+      .filter((n) => n.length > 0),
+  );
+
   for (const [i, row] of rows.entries()) {
     const rowNum = i + 1;
     try {
-      if (!row.name || String(row.name).trim() === "") {
+      const rawName = String(row.name ?? "").trim();
+      if (!rawName) {
         result.errors.push({ row: rowNum, message: "Name is required" });
+        continue;
+      }
+      const nameKey = rawName.toLowerCase();
+      if (existingNames.has(nameKey)) {
+        result.errors.push({
+          row: rowNum,
+          message: "A product with this name already exists. Check if you imported this file before.",
+        });
         continue;
       }
       const costPrice = Number(row.costPrice);
       const sellPrice = Number(row.sellPrice);
-      if (!Number.isFinite(costPrice) || costPrice < 0) {
-        result.errors.push({ row: rowNum, message: "Invalid cost price" });
+      if (!Number.isFinite(costPrice) || costPrice <= 0) {
+        result.errors.push({ row: rowNum, message: "Cost price is required and must be greater than 0" });
         continue;
       }
-      if (!Number.isFinite(sellPrice) || sellPrice < 0) {
-        result.errors.push({ row: rowNum, message: "Invalid sell price" });
+      if (!Number.isFinite(sellPrice) || sellPrice <= 0) {
+        result.errors.push({ row: rowNum, message: "Sell price is required and must be greater than 0" });
+        continue;
+      }
+      const quantity = Number(row.quantity);
+      if (!Number.isFinite(quantity) || quantity < 0) {
+        result.errors.push({ row: rowNum, message: "Quantity is required and must be 0 or greater" });
         continue;
       }
       await createProduct({
         businessId,
         branchId: branchId ?? null,
         userId,
-        name: String(row.name).trim(),
+        name: rawName,
         sku: row.sku != null ? String(row.sku).trim() || null : null,
         category: row.category != null ? String(row.category).trim() || null : null,
         costPrice,
         sellPrice,
-        ...(typeof row.quantity === "number" && { quantity: row.quantity }),
+        quantity,
         ...(typeof row.reorderLevel === "number" && {
           reorderLevel: row.reorderLevel,
         }),
       });
       result.created += 1;
+      existingNames.add(nameKey);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create product";
       result.errors.push({ row: rowNum, message });
+    }
+  }
+
+  return result;
+}
+
+export async function getOrganizeSummary(params: {
+  businessId: number;
+}): Promise<OrganizeSummary> {
+  const { businessId } = params;
+
+  const rows = await db
+    .select({
+      category: products.category,
+      sku: products.sku,
+    })
+    .from(products)
+    .where(eq(products.businessId, businessId));
+
+  let uncategorizedCount = 0;
+  let missingSkuCount = 0;
+
+  for (const row of rows) {
+    const category = (row.category ?? "").trim();
+    if (!category) {
+      uncategorizedCount += 1;
+    }
+    const sku = (row.sku ?? "").trim();
+    if (!sku) {
+      missingSkuCount += 1;
+    }
+  }
+
+  return { uncategorizedCount, missingSkuCount };
+}
+
+export async function listUncategorizedProducts(params: {
+  businessId: number;
+  branchId?: number | null;
+}): Promise<InventoryProduct[]> {
+  const { businessId, branchId } = params;
+  const items = await listProducts({ businessId, branchId: branchId ?? null });
+  return items.filter((p) => !p.category || p.category.trim() === "");
+}
+
+export async function listMissingSkuProducts(params: {
+  businessId: number;
+  branchId?: number | null;
+}): Promise<InventoryProduct[]> {
+  const { businessId, branchId } = params;
+  const items = await listProducts({ businessId, branchId: branchId ?? null });
+  return items.filter((p) => !p.sku || p.sku.trim() === "");
+}
+
+export async function bulkUpdateCategories(params: {
+  businessId: number;
+  branchId?: number | null;
+  userId: number;
+  productIds: number[];
+  category: string;
+}): Promise<BulkOrganizeResult> {
+  const { businessId, branchId, userId, productIds, category } = params;
+  const result: BulkOrganizeResult = { updated: 0, errors: [] };
+  const trimmedCategory = category.trim();
+
+  for (const id of productIds) {
+    try {
+      await updateProduct({
+        id,
+        businessId,
+        branchId: branchId ?? null,
+        userId,
+        category: trimmedCategory,
+      });
+      result.updated += 1;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to update category";
+      result.errors.push({ id, message });
+    }
+  }
+
+  return result;
+}
+
+export async function bulkUpdateSkus(params: {
+  businessId: number;
+  branchId?: number | null;
+  userId: number;
+  items: Array<{ productId: number; sku: string }>;
+}): Promise<BulkOrganizeResult> {
+  const { businessId, branchId, userId, items } = params;
+  const result: BulkOrganizeResult = { updated: 0, errors: [] };
+
+  for (const { productId, sku } of items) {
+    const normalizedSku = sku.trim().toUpperCase();
+    if (!normalizedSku) {
+      result.errors.push({
+        id: productId,
+        message: "SKU cannot be empty",
+      });
+      continue;
+    }
+
+    try {
+      await updateProduct({
+        id: productId,
+        businessId,
+        branchId: branchId ?? null,
+        userId,
+        sku: normalizedSku,
+      });
+      result.updated += 1;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to update SKU";
+      result.errors.push({ id: productId, message });
     }
   }
 
@@ -249,6 +403,8 @@ export async function updateProduct(params: {
   if (typeof category === "string") updateData.category = category.trim();
   if (typeof costPrice === "number") updateData.costPrice = costPrice.toString();
   if (typeof sellPrice === "number") updateData.sellPrice = sellPrice.toString();
+  if (typeof params.reorderLevel === "number" && params.reorderLevel >= 0)
+    updateData.reorderLevel = params.reorderLevel;
   if (status) updateData.status = status;
 
   let updatedProduct = existing.product;
@@ -329,7 +485,8 @@ export async function updateProduct(params: {
     sellPrice: updatedProduct.sellPrice,
     status: updatedProduct.status,
     quantity: stockLevel?.quantity ?? 0,
-    reorderLevel: typeof params.reorderLevel === "number" ? params.reorderLevel : 10,
+    reorderLevel: updatedProduct.reorderLevel ?? 10,
+    imageUrl: updatedProduct.imageUrl ?? null,
   };
 }
 
@@ -339,15 +496,37 @@ export async function deleteProduct(params: {
 }): Promise<void> {
   const { id, businessId } = params;
 
-  const result = await db
-    .delete(products)
+  const [existing] = await db
+    .select({
+      id: products.id,
+      imagePublicId: products.imagePublicId,
+    })
+    .from(products)
     .where(and(eq(products.id, id), eq(products.businessId, businessId)))
-    .returning({ id: products.id });
+    .limit(1);
 
-  if (!result[0]) {
+  if (!existing) {
     const err = new Error("Product not found") as Error & { status?: number };
     err.status = 404;
     throw err;
   }
+
+  if (existing.imagePublicId) {
+    try {
+      await cloudinary.uploader.destroy(existing.imagePublicId, {
+        resource_type: "image",
+      });
+    } catch (err) {
+      console.error(
+        "[products] Failed to delete product image from Cloudinary:",
+        err,
+      );
+      // Continue with product deletion even if image deletion fails
+    }
+  }
+
+  await db
+    .delete(products)
+    .where(and(eq(products.id, id), eq(products.businessId, businessId)));
 }
 

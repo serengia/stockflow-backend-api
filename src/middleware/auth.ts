@@ -13,7 +13,10 @@ export async function requireAuth(ctx: Context, next: Next): Promise<void> {
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!token) {
     ctx.status = 401;
-    ctx.body = { message: "Authentication required", error: { message: "Authentication required" } };
+    ctx.body = {
+      message: "Authentication required",
+      error: { message: "Authentication required" },
+    };
     return;
   }
   try {
@@ -28,7 +31,10 @@ export async function requireAuth(ctx: Context, next: Next): Promise<void> {
         });
       }
       ctx.status = 401;
-      ctx.body = { message: "Invalid or expired token", error: { message: "Invalid or expired token" } };
+      ctx.body = {
+        message: "Invalid or expired token",
+        error: { message: "Invalid or expired token" },
+      };
       return;
     }
     const user = await getMe(userId);
@@ -38,7 +44,8 @@ export async function requireAuth(ctx: Context, next: Next): Promise<void> {
           authFailure: "user_not_found_or_inactive",
           userId,
           sub: payload.sub,
-          message: "User not found or inactive; token may be from another environment or expired",
+          message:
+            "User not found or inactive; token may be from another environment or expired",
         });
       }
       ctx.status = 401;
@@ -64,4 +71,24 @@ export async function requireAuth(ctx: Context, next: Next): Promise<void> {
       error: { message: "Invalid or expired token. Please log in again." },
     };
   }
+}
+
+export async function requirePlatformAdmin(
+  ctx: Context,
+  next: Next,
+): Promise<void> {
+  await requireAuth(ctx, async () => {
+    const user = (ctx.state as { user?: AuthUser }).user;
+    if (!user || user.email.toLowerCase() !== "stockflowke@gmail.com") {
+      ctx.status = 403;
+      ctx.body = {
+        message: "You do not have permission to access this resource",
+        error: {
+          message: "You do not have permission to access this resource",
+        },
+      };
+      return;
+    }
+    await next();
+  });
 }

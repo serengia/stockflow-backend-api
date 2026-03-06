@@ -12,7 +12,12 @@ import {
 } from "drizzle-orm/pg-core";
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["admin", "manager", "attendant"]);
+export const userRoleEnum = pgEnum("user_role", [
+  "admin",
+  "manager",
+  "attendant",
+  "platform_admin",
+]);
 
 export const productStatusEnum = pgEnum("product_status", ["active", "inactive"]);
 
@@ -51,6 +56,7 @@ export const businesses = pgTable("businesses", {
   ownerName: varchar("owner_name", { length: 255 }),
   ownerEmail: varchar("owner_email", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
+  status: varchar("status", { length: 50 }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -82,6 +88,8 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }), // nullable for Google-only users
   avatarUrl: varchar("avatar_url", { length: 512 }),
+  /** Cloudinary public_id for avatar image (used when deleting or replacing). */
+  avatarPublicId: varchar("avatar_public_id", { length: 255 }),
   role: userRoleEnum("role").notNull().default("attendant"),
   isActive: integer("is_active").notNull().default(1),
   emailVerified: boolean("email_verified").notNull().default(false),
@@ -163,7 +171,14 @@ export const products = pgTable("products", {
   category: varchar("category", { length: 255 }),
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 12, scale: 2 }).notNull(),
+  reorderLevel: integer("reorder_level").notNull().default(10),
   status: productStatusEnum("status").notNull().default("active"),
+  imageUrl: varchar("image_url", { length: 512 }),
+  /**
+   * Cloudinary public_id for the main product image.
+   * Used to delete/replace the asset when needed.
+   */
+  imagePublicId: varchar("image_public_id", { length: 255 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -214,7 +229,6 @@ export const productSkus = pgTable(
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
     code: varchar("code", { length: 100 }).notNull(),
-    reorderLevel: integer("reorder_level").notNull().default(10),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()

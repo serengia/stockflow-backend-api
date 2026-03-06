@@ -39,9 +39,9 @@ const productBodySchema = z.object({
   sku: z.string().optional(),
   barcode: z.string().optional(),
   category: z.string().optional(),
-  costPrice: z.coerce.number().min(0),
-  sellPrice: z.coerce.number().min(0),
-  quantity: z.coerce.number().int().min(0).optional(),
+  costPrice: z.coerce.number().positive("Cost price must be greater than 0"),
+  sellPrice: z.coerce.number().positive("Sell price must be greater than 0"),
+  quantity: z.coerce.number().int().min(0, "Quantity is required"),
   reorderLevel: z.coerce.number().int().min(0).optional(),
   imageUrl: z.string().url().optional(),
 });
@@ -112,7 +112,7 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
     category: payload.category ?? null,
     costPrice: payload.costPrice,
     sellPrice: payload.sellPrice,
-    ...(payload.quantity !== undefined && { quantity: payload.quantity }),
+    quantity: payload.quantity,
     ...(payload.reorderLevel !== undefined && { reorderLevel: payload.reorderLevel }),
   });
 
@@ -142,14 +142,42 @@ const bulkProductRowSchema = z.object({
   name: z.string().min(1),
   sku: z.string().optional(),
   category: z.string().optional(),
-  costPrice: z.coerce.number().min(0),
-  sellPrice: z.coerce.number().min(0),
-  quantity: z.coerce.number().int().min(0).optional(),
+  costPrice: z.coerce.number().positive("Cost price must be greater than 0"),
+  sellPrice: z.coerce.number().positive("Sell price must be greater than 0"),
+  quantity: z.coerce.number().int().min(0, "Quantity is required"),
   reorderLevel: z.coerce.number().int().min(0).optional(),
 });
 
 const bulkCreateSchema = z.object({
   products: z.array(bulkProductRowSchema).min(1).max(500),
+});
+
+const organizeSummaryQuerySchema = z.object({
+  branchId: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((v) => {
+      if (typeof v === "number") return v;
+      if (typeof v === "string" && v.trim() !== "") return Number(v);
+      return undefined;
+    })
+    .optional(),
+});
+
+const bulkCategoriesSchema = z.object({
+  productIds: z.array(z.coerce.number().int().min(1)).min(1),
+  category: z.string().min(1),
+});
+
+const bulkSkusSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.coerce.number().int().min(1),
+        sku: z.string().min(1),
+      }),
+    )
+    .min(1),
 });
 
 // POST /api/v1/products/bulk
@@ -169,9 +197,9 @@ productsRouter.post("/bulk", requireAuth, async (ctx: Context) => {
     name: row.name,
     costPrice: row.costPrice,
     sellPrice: row.sellPrice,
+    quantity: row.quantity,
     ...(row.sku !== undefined && { sku: row.sku ?? null }),
     ...(row.category !== undefined && { category: row.category ?? null }),
-    ...(row.quantity !== undefined && { quantity: row.quantity }),
     ...(row.reorderLevel !== undefined && { reorderLevel: row.reorderLevel }),
   }));
 
@@ -194,6 +222,145 @@ productsRouter.post("/bulk", requireAuth, async (ctx: Context) => {
   ctx.status = 200;
   ctx.body = { data: result };
 });
+
+// GET /api/v1/products/organize/summary
+productsRouter.get("/organize/summary", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  if (user.role === "attendant") {
+    ctx.status = 403;
+    ctx.body = { message: "Only managers or admins can organize inventory", error: { message: "Only managers or admins can organize inventory" } };
+    return;
+  }
+  const query = (ctx.request as RequestWithBody).query ?? {};
+  const parsed = organizeSummaryQuerySchema.safeParse(query);
+
+  if (!parsed.success) {
+    ctx.status = 400;
+    const msg = firstIssueMessage(parsed.error);
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+
+  const summary = await productsService.getOrganizeSummary({
+    businessId: user.businessId,
+  });
+
+  ctx.status = 200;
+  ctx.body = { data: summary };
+});
+
+// GET /api/v1/products/organize/uncategorized
+productsRouter.get(
+  "/organize/uncategorized",
+  requireAuth,
+  async (ctx: Context) => {
+    const user = ctx.state.user as AuthUser;
+    if (user.role === "attendant") {
+      ctx.status = 403;
+      ctx.body = { message: "Only managers or admins can organize inventory", error: { message: "Only managers or admins can organize inventory" } };
+      return;
+    }
+
+    const items = await productsService.listUncategorizedProducts({
+      businessId: user.businessId,
+      branchId: user.branchId ?? null,
+    });
+
+    ctx.status = 200;
+    ctx.body = { data: items };
+  },
+);
+
+// GET /api/v1/products/organize/missing-skus
+productsRouter.get(
+  "/organize/missing-skus",
+  requireAuth,
+  async (ctx: Context) => {
+    const user = ctx.state.user as AuthUser;
+    if (user.role === "attendant") {
+      ctx.status = 403;
+      ctx.body = { message: "Only managers or admins can organize inventory", error: { message: "Only managers or admins can organize inventory" } };
+      return;
+    }
+
+    const items = await productsService.listMissingSkuProducts({
+      businessId: user.businessId,
+      branchId: user.branchId ?? null,
+    });
+
+    ctx.status = 200;
+    ctx.body = { data: items };
+  },
+);
+
+// PATCH /api/v1/products/organize/categories
+productsRouter.patch(
+  "/organize/categories",
+  requireAuth,
+  async (ctx: Context) => {
+    const user = ctx.state.user as AuthUser;
+    if (user.role === "attendant") {
+      ctx.status = 403;
+      ctx.body = { message: "Only managers or admins can organize inventory", error: { message: "Only managers or admins can organize inventory" } };
+      return;
+    }
+    const body = (ctx.request as RequestWithBody).body;
+    const parsed = bulkCategoriesSchema.safeParse(body);
+
+    if (!parsed.success) {
+      ctx.status = 400;
+      const msg = firstIssueMessage(parsed.error);
+      ctx.body = { message: msg, error: { message: msg } };
+      return;
+    }
+
+    const payload = parsed.data;
+
+    const result = await productsService.bulkUpdateCategories({
+      businessId: user.businessId,
+      branchId: user.branchId ?? null,
+      userId: user.id,
+      productIds: payload.productIds,
+      category: payload.category,
+    });
+
+    ctx.status = 200;
+    ctx.body = { data: result };
+  },
+);
+
+// PATCH /api/v1/products/organize/skus
+productsRouter.patch(
+  "/organize/skus",
+  requireAuth,
+  async (ctx: Context) => {
+    const user = ctx.state.user as AuthUser;
+    if (user.role === "attendant") {
+      ctx.status = 403;
+      ctx.body = { message: "Only managers or admins can organize inventory", error: { message: "Only managers or admins can organize inventory" } };
+      return;
+    }
+    const body = (ctx.request as RequestWithBody).body;
+    const parsed = bulkSkusSchema.safeParse(body);
+
+    if (!parsed.success) {
+      ctx.status = 400;
+      const msg = firstIssueMessage(parsed.error);
+      ctx.body = { message: msg, error: { message: msg } };
+      return;
+    }
+
+    const result = await productsService.bulkUpdateSkus({
+      businessId: user.businessId,
+      branchId: user.branchId ?? null,
+      userId: user.id,
+      items: parsed.data.items,
+    });
+
+    ctx.status = 200;
+    ctx.body = { data: result };
+  },
+);
 
 // PATCH /api/v1/products/:id
 productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {

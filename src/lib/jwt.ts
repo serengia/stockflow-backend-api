@@ -7,6 +7,7 @@ export interface JwtPayload {
   role?: string | undefined;
   businessId?: number | undefined;
   branchId?: number | null | undefined;
+   impersonatedBy?: number | undefined;
 }
 
 export async function signAccessToken(payload: JwtPayload): Promise<string> {
@@ -35,6 +36,12 @@ export async function verifyAccessToken(token: string): Promise<JwtPayload> {
       : typeof payload.branchId === "string"
         ? Number(payload.branchId)
         : undefined;
+  const impersonatedBy =
+    typeof payload.impersonatedBy === "number"
+      ? payload.impersonatedBy
+      : typeof payload.impersonatedBy === "string"
+        ? Number(payload.impersonatedBy)
+        : undefined;
   return {
     sub: payload.sub as string,
     email: (payload.email as string) ?? "",
@@ -44,6 +51,9 @@ export async function verifyAccessToken(token: string): Promise<JwtPayload> {
       : {}),
     ...(typeof branchId === "number" && Number.isFinite(branchId)
       ? { branchId }
+      : {}),
+    ...(typeof impersonatedBy === "number" && Number.isFinite(impersonatedBy)
+      ? { impersonatedBy }
       : {}),
   };
 }
