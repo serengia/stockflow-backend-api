@@ -195,6 +195,25 @@ export const suppliers = pgTable("suppliers", {
   contactName: varchar("contact_name", { length: 255 }),
   email: varchar("email", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
+  /** Short optional note on what they supply */
+  description: varchar("description", { length: 500 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// Promotions (per business) — promo codes for POS
+export const promotions = pgTable("promotions", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 50 }).notNull().default("percent_off"),
+  config: text("config"), // JSON: { code, percent?, amount?, minCartTotal? }
+  validFrom: varchar("valid_from", { length: 50 }).notNull(),
+  validTo: varchar("valid_to", { length: 50 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()

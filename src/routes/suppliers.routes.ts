@@ -20,6 +20,7 @@ const supplierBodySchema = z.object({
   contact: z.string().optional(),
   email: z.string().email().optional(),
   phone: z.string().optional(),
+  description: z.string().max(500).optional(),
 });
 
 function firstIssueMessage(error: z.ZodError): string {
@@ -81,6 +82,9 @@ suppliersRouter.post("/", requireAuth, async (ctx: Context) => {
   if (payload.phone !== undefined) {
     params.phone = payload.phone;
   }
+  if (payload.description !== undefined) {
+    params.description = payload.description;
+  }
 
   const created = await suppliersService.createSupplier(params);
 
@@ -127,6 +131,9 @@ suppliersRouter.patch("/:id", requireAuth, async (ctx: Context) => {
   }
   if (payload.phone !== undefined) {
     params.phone = payload.phone;
+  }
+  if (payload.description !== undefined) {
+    params.description = payload.description;
   }
 
   const updated = await suppliersService.updateSupplier(params);

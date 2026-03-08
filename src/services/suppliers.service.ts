@@ -11,6 +11,7 @@ export interface Supplier {
   contact: string | null;
   email: string | null;
   phone: string | null;
+  description: string | null;
 }
 
 function toSupplier(row: DbSupplier): Supplier {
@@ -21,6 +22,7 @@ function toSupplier(row: DbSupplier): Supplier {
     contact: row.contactName ?? null,
     email: row.email ?? null,
     phone: row.phone ?? null,
+    description: row.description ?? null,
   };
 }
 
@@ -44,8 +46,9 @@ export async function createSupplier(params: {
   contact?: string | null;
   email?: string | null;
   phone?: string | null;
+  description?: string | null;
 }): Promise<Supplier> {
-  const { businessId, name, contact, email, phone } = params;
+  const { businessId, name, contact, email, phone, description } = params;
 
   const [created] = await db
     .insert(suppliers)
@@ -55,6 +58,7 @@ export async function createSupplier(params: {
       contactName: contact?.trim() || null,
       email: email?.trim() || null,
       phone: phone?.trim() || null,
+      description: description?.trim() || null,
     })
     .returning();
 
@@ -74,8 +78,9 @@ export async function updateSupplier(params: {
   contact?: string | null;
   email?: string | null;
   phone?: string | null;
+  description?: string | null;
 }): Promise<Supplier> {
-  const { id, businessId, name, contact, email, phone } = params;
+  const { id, businessId, name, contact, email, phone, description } = params;
 
   const [existing] = await db
     .select()
@@ -94,6 +99,7 @@ export async function updateSupplier(params: {
   if (contact !== undefined) updateData.contactName = contact?.trim() || null;
   if (email !== undefined) updateData.email = email?.trim() || null;
   if (phone !== undefined) updateData.phone = phone?.trim() || null;
+  if (description !== undefined) updateData.description = description?.trim() || null;
 
   let updatedRow = existing;
 
