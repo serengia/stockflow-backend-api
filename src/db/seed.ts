@@ -15,7 +15,9 @@ import {
 async function getDefaultContext() {
   const [business] = await db.select().from(businesses).limit(1);
   if (!business) {
-    throw new Error("No businesses found. Please sign up in the app first so a business is created.");
+    throw new Error(
+      "No businesses found. Please sign up in the app first so a business is created.",
+    );
   }
 
   const [adminUser] = await db
@@ -25,7 +27,9 @@ async function getDefaultContext() {
     .limit(1);
 
   if (!adminUser) {
-    throw new Error("No users found for this business. Create at least one user first.");
+    throw new Error(
+      "No users found for this business. Create at least one user first.",
+    );
   }
 
   const [existingMain] = await db
@@ -53,7 +57,12 @@ async function getDefaultContext() {
   const [existingSecondary] = await db
     .select({ id: branches.id })
     .from(branches)
-    .where(and(eq(branches.businessId, business.id), eq(branches.name, "Mall Branch")))
+    .where(
+      and(
+        eq(branches.businessId, business.id),
+        eq(branches.name, "Mall Branch"),
+      ),
+    )
     .limit(1);
 
   let secondaryBranchId: number;
@@ -187,7 +196,13 @@ async function seedStockAndMovements(params: {
   secondaryBranchId: number;
   productIdsBySku: Record<string, number>;
 }) {
-  const { businessId, adminUserId, mainBranchId, secondaryBranchId, productIdsBySku } = params;
+  const {
+    businessId,
+    adminUserId,
+    mainBranchId,
+    secondaryBranchId,
+    productIdsBySku,
+  } = params;
 
   const stockPlan: Array<{
     sku: string;
@@ -228,7 +243,7 @@ async function seedStockAndMovements(params: {
           businessId,
           branchId: mainBranchId,
           productId,
-          quantity: row.mainQty,
+          quantity: row.mainQty.toString(),
         })
         .returning({ id: stockLevels.id });
 
@@ -238,7 +253,7 @@ async function seedStockAndMovements(params: {
         productId,
         userId: adminUserId,
         type: "opening_balance",
-        quantity: row.mainQty,
+        quantity: row.mainQty.toString(),
         note: "Initial stock (seed)",
       });
 
@@ -250,7 +265,7 @@ async function seedStockAndMovements(params: {
           productId,
           userId: adminUserId,
           type: "purchase",
-          quantity: 10,
+          quantity: "10",
           note: "Restock purchase (seed)",
         });
       }
@@ -276,7 +291,7 @@ async function seedStockAndMovements(params: {
           businessId,
           branchId: secondaryBranchId,
           productId,
-          quantity: row.secondaryQty,
+          quantity: row.secondaryQty.toString(),
         })
         .returning({ id: stockLevels.id });
 
@@ -286,7 +301,7 @@ async function seedStockAndMovements(params: {
         productId,
         userId: adminUserId,
         type: "opening_balance",
-        quantity: row.secondaryQty,
+        quantity: row.secondaryQty.toString(),
         note: "Initial stock (seed)",
       });
     }
@@ -307,7 +322,10 @@ async function seedSalesAndPayments(params: {
     { sku: "GROC-FLOUR-2KG", quantity: 1, unitPrice: 2.2 },
   ];
 
-  const sale1Total = sale1Items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const sale1Total = sale1Items.reduce(
+    (sum, item) => sum + item.quantity * item.unitPrice,
+    0,
+  );
 
   const [sale1] = await db
     .insert(sales)
@@ -333,7 +351,7 @@ async function seedSalesAndPayments(params: {
     await db.insert(saleItems).values({
       saleId: sale1.id,
       productId,
-      quantity: item.quantity,
+      quantity: item.quantity.toString(),
       unitPrice: item.unitPrice.toFixed(2),
       lineTotal: lineTotal.toFixed(2),
     });
@@ -354,7 +372,10 @@ async function seedSalesAndPayments(params: {
     { sku: "ELEC-BT-SPKR", quantity: 1, unitPrice: 24.99 },
     { sku: "HEALTH-SAN-500", quantity: 2, unitPrice: 2.5 },
   ];
-  const sale2Total = sale2Items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const sale2Total = sale2Items.reduce(
+    (sum, item) => sum + item.quantity * item.unitPrice,
+    0,
+  );
 
   const [sale2] = await db
     .insert(sales)
@@ -380,7 +401,7 @@ async function seedSalesAndPayments(params: {
     await db.insert(saleItems).values({
       saleId: sale2.id,
       productId,
-      quantity: item.quantity,
+      quantity: item.quantity.toString(),
       unitPrice: item.unitPrice.toFixed(2),
       lineTotal: lineTotal.toFixed(2),
     });
@@ -398,7 +419,8 @@ async function seedSalesAndPayments(params: {
 }
 
 export async function main() {
-  const { business, adminUser, mainBranchId, secondaryBranchId } = await getDefaultContext();
+  const { business, adminUser, mainBranchId, secondaryBranchId } =
+    await getDefaultContext();
 
   const productIdsBySku = await seedProducts(business.id);
 
@@ -428,4 +450,3 @@ main()
     console.error("Failed to seed data:", err);
     process.exit(1);
   });
-
