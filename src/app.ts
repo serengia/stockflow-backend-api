@@ -29,6 +29,7 @@ import { suppliersRouter } from "./routes/suppliers.routes.js";
 import { auditRouter } from "./routes/audit.routes.js";
 import { platformRouter } from "./routes/platform.routes.js";
 import { promotionsRouter } from "./routes/promotions.routes.js";
+import { reportsRouter } from "./routes/reports.routes.js";
 
 export function createApp() {
   const app = new Koa();
@@ -112,6 +113,7 @@ export function createApp() {
   router.use(auditRouter.routes()).use(auditRouter.allowedMethods());
   router.use(platformRouter.routes()).use(platformRouter.allowedMethods());
   router.use(promotionsRouter.routes()).use(promotionsRouter.allowedMethods());
+  router.use(reportsRouter.routes()).use(reportsRouter.allowedMethods());
 
   app.use(router.routes()).use(router.allowedMethods());
 

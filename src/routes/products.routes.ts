@@ -77,15 +77,24 @@ productsRouter.get("/", requireAuth, async (ctx: Context) => {
       ? user.branchId
       : undefined;
 
-  const items = await productsService.listProducts({
+  const { search, page, limit } = parsed.data;
+
+  const listParams: Parameters<typeof productsService.listProducts>[0] = {
     businessId: user.businessId,
     branchId: branchId ?? null,
-  });
+    page: page ?? 1,
+    limit: limit ?? 200,
+    ...(search !== undefined && search !== ""
+      ? { search }
+      : {}),
+  };
 
-  const data = belowReorder ? items.filter((p) => p.quantity < p.reorderLevel) : items;
+  const result = await productsService.listProducts(listParams);
+
+  const data = belowReorder ? result.data.filter((p) => p.quantity < p.reorderLevel) : result.data;
 
   ctx.status = 200;
-  ctx.body = { data };
+  ctx.body = { data, total: result.total, page: result.page, limit: result.limit };
 });
 
 // POST /api/v1/products
@@ -123,6 +132,7 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
     userId: user.id,
     name: payload.name,
     sku: payload.sku ?? null,
+    barcode: payload.barcode ?? null,
     category: payload.category ?? null,
     costPrice: payload.costPrice,
     sellPrice: payload.sellPrice,
@@ -376,6 +386,133 @@ productsRouter.patch(
   },
 );
 
+// GET /api/v1/products/frequently-sold
+const frequentlySoldQuerySchema = z.object({
+  branchId: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((v) => {
+      if (typeof v === "number") return v;
+      if (typeof v === "string" && v.trim() !== "") return Number(v);
+      return undefined;
+    })
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  days: z.coerce.number().int().min(1).max(365).optional(),
+});
+
+productsRouter.get("/frequently-sold", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  const query = (ctx.request as RequestWithBody).query ?? {};
+  const parsed = frequentlySoldQuerySchema.safeParse(query);
+
+  if (!parsed.success) {
+    ctx.status = 400;
+    const msg = firstIssueMessage(parsed.error);
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+
+  const branchId =
+    typeof parsed.data.branchId === "number"
+      ? parsed.data.branchId
+      : user.branchId != null
+      ? user.branchId
+      : undefined;
+
+  const data = await productsService.getFrequentlySold({
+    businessId: user.businessId,
+    branchId: branchId ?? null,
+    ...(parsed.data.limit !== undefined && { limit: parsed.data.limit }),
+    ...(parsed.data.days !== undefined && { days: parsed.data.days }),
+  });
+
+  ctx.status = 200;
+  ctx.body = { data };
+});
+
+// POST /api/v1/products/:id/adjust
+const stockAdjustSchema = z.object({
+  type: z.enum(["purchase", "adjustment", "opening_balance"]),
+  quantityChange: z.coerce.number().int(),
+  note: z.string().optional(),
+});
+
+productsRouter.post("/:id/adjust", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  const id = Number(ctx.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    ctx.status = 400;
+    ctx.body = { message: "Invalid product id", error: { message: "Invalid product id" } };
+    return;
+  }
+
+  const body = (ctx.request as RequestWithBody).body;
+  const parsed = stockAdjustSchema.safeParse(body);
+
+  if (!parsed.success) {
+    ctx.status = 400;
+    const msg = firstIssueMessage(parsed.error);
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+
+  const branchId = user.branchId;
+  if (branchId == null) {
+    ctx.status = 400;
+    ctx.body = { message: "Branch required for stock adjustment", error: { message: "Branch required for stock adjustment" } };
+    return;
+  }
+
+  const result = await productsService.adjustStock({
+    productId: id,
+    businessId: user.businessId,
+    branchId,
+    userId: user.id,
+    type: parsed.data.type,
+    quantityChange: parsed.data.quantityChange,
+    note: parsed.data.note ?? null,
+  });
+
+  await recordAuditLog({
+    businessId: user.businessId,
+    userId: user.id,
+    entityType: "product",
+    entityId: id,
+    action: "stock_change",
+    changes: {
+      productId: id,
+      type: parsed.data.type,
+      quantityChange: parsed.data.quantityChange,
+      newQuantity: result.quantity,
+      note: parsed.data.note ?? null,
+    },
+  });
+
+  ctx.status = 200;
+  ctx.body = { data: result };
+});
+
+// GET /api/v1/products/:id/movements
+productsRouter.get("/:id/movements", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  const id = Number(ctx.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    ctx.status = 400;
+    ctx.body = { message: "Invalid product id", error: { message: "Invalid product id" } };
+    return;
+  }
+
+  const movements = await productsService.getStockMovements({
+    productId: id,
+    businessId: user.businessId,
+    branchId: user.branchId ?? null,
+  });
+
+  ctx.status = 200;
+  ctx.body = { data: movements };
+});
+
 // PATCH /api/v1/products/:id
 productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
   const user = ctx.state.user as AuthUser;
@@ -419,6 +556,7 @@ productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
     userId: user.id,
     ...(payload.name !== undefined && { name: payload.name }),
     ...(payload.sku !== undefined && { sku: payload.sku ?? null }),
+    ...(payload.barcode !== undefined && { barcode: payload.barcode ?? null }),
     ...(payload.category !== undefined && { category: payload.category ?? null }),
     ...(payload.costPrice !== undefined && { costPrice: payload.costPrice }),
     ...(payload.sellPrice !== undefined && { sellPrice: payload.sellPrice }),

@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc, gte, ilike, or, sql, sum } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { products, stockLevels } from "../db/schema/schema.js";
+import { products, stockLevels, stockMovements, saleItems, sales } from "../db/schema/schema.js";
 import { cloudinary } from "../lib/cloudinary.js";
 
 type DbProduct = typeof products.$inferSelect;
@@ -10,6 +10,7 @@ export interface InventoryProduct {
   id: number;
   name: string;
   sku: string | null;
+  barcode: string | null;
   category: string | null;
   costPrice: DbProduct["costPrice"];
   sellPrice: DbProduct["sellPrice"];
@@ -27,6 +28,7 @@ function toInventoryProduct(row: {
     id: row.product.id,
     name: row.product.name,
     sku: row.product.sku ?? null,
+    barcode: row.product.barcode ?? null,
     category: row.product.category ?? null,
     costPrice: row.product.costPrice,
     sellPrice: row.product.sellPrice,
@@ -37,11 +39,23 @@ function toInventoryProduct(row: {
   };
 }
 
+export interface ListProductsResult {
+  data: InventoryProduct[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export async function listProducts(params: {
   businessId: number;
   branchId?: number | null;
-}): Promise<InventoryProduct[]> {
-  const { businessId, branchId } = params;
+  search?: string;
+  page?: number;
+  limit?: number;
+}): Promise<ListProductsResult> {
+  const { businessId, branchId, search } = params;
+  const page = Math.max(1, params.page ?? 1);
+  const limit = Math.min(200, Math.max(1, params.limit ?? 200));
 
   const joinOn =
     branchId != null
@@ -55,6 +69,29 @@ export async function listProducts(params: {
           eq(stockLevels.businessId, businessId),
         );
 
+  const whereConditions = [eq(products.businessId, businessId)];
+
+  if (search && search.trim()) {
+    const term = `%${search.trim()}%`;
+    whereConditions.push(
+      or(
+        ilike(products.name, term),
+        ilike(products.sku, term),
+        ilike(products.barcode, term),
+      )!,
+    );
+  }
+
+  const whereClause = and(...whereConditions);
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(products)
+    .where(whereClause);
+  const total = Number(countRow?.count ?? 0);
+
+  const offset = (page - 1) * limit;
+
   const rows = await db
     .select({
       product: products,
@@ -62,10 +99,17 @@ export async function listProducts(params: {
     })
     .from(products)
     .leftJoin(stockLevels, joinOn)
-    .where(eq(products.businessId, businessId))
-    .orderBy(products.name);
+    .where(whereClause)
+    .orderBy(products.name)
+    .limit(limit)
+    .offset(offset);
 
-  return rows.map(toInventoryProduct);
+  return {
+    data: rows.map(toInventoryProduct),
+    total,
+    page,
+    limit,
+  };
 }
 
 export async function createProduct(params: {
@@ -74,6 +118,7 @@ export async function createProduct(params: {
   userId: number;
   name: string;
   sku?: string | null;
+  barcode?: string | null;
   category?: string | null;
   costPrice: number;
   sellPrice: number;
@@ -86,6 +131,7 @@ export async function createProduct(params: {
     userId: _userId,
     name,
     sku,
+    barcode,
     category,
     costPrice,
     sellPrice,
@@ -102,6 +148,7 @@ export async function createProduct(params: {
       businessId,
       name: name.trim(),
       sku: sku?.trim() || null,
+      barcode: barcode?.trim() || null,
       category: category?.trim() || null,
       costPrice: costPrice.toString(),
       sellPrice: sellPrice.toString(),
@@ -136,6 +183,7 @@ export async function createProduct(params: {
     id: product.id,
     name: product.name,
     sku: product.sku ?? null,
+    barcode: product.barcode ?? null,
     category: product.category ?? null,
     costPrice: product.costPrice,
     sellPrice: product.sellPrice,
@@ -284,8 +332,8 @@ export async function listUncategorizedProducts(params: {
   branchId?: number | null;
 }): Promise<InventoryProduct[]> {
   const { businessId, branchId } = params;
-  const items = await listProducts({ businessId, branchId: branchId ?? null });
-  return items.filter((p) => !p.category || p.category.trim() === "");
+  const result = await listProducts({ businessId, branchId: branchId ?? null });
+  return result.data.filter((p) => !p.category || p.category.trim() === "");
 }
 
 export async function listMissingSkuProducts(params: {
@@ -293,8 +341,8 @@ export async function listMissingSkuProducts(params: {
   branchId?: number | null;
 }): Promise<InventoryProduct[]> {
   const { businessId, branchId } = params;
-  const items = await listProducts({ businessId, branchId: branchId ?? null });
-  return items.filter((p) => !p.sku || p.sku.trim() === "");
+  const result = await listProducts({ businessId, branchId: branchId ?? null });
+  return result.data.filter((p) => !p.sku || p.sku.trim() === "");
 }
 
 export async function bulkUpdateCategories(params: {
@@ -373,6 +421,7 @@ export async function updateProduct(params: {
   userId: number;
   name?: string;
   sku?: string | null;
+  barcode?: string | null;
   category?: string | null;
   costPrice?: number;
   sellPrice?: number;
@@ -380,7 +429,7 @@ export async function updateProduct(params: {
   status?: DbProduct["status"];
   reorderLevel?: number;
 }): Promise<InventoryProduct> {
-  const { id, businessId, branchId, name, sku, category, costPrice, sellPrice, quantity, status } =
+  const { id, businessId, branchId, name, sku, barcode, category, costPrice, sellPrice, quantity, status } =
     params;
 
   const [existing] = await db
@@ -400,6 +449,7 @@ export async function updateProduct(params: {
   const updateData: Partial<DbProduct> = {};
   if (typeof name === "string") updateData.name = name.trim();
   if (typeof sku === "string") updateData.sku = sku.trim();
+  if (typeof barcode === "string") updateData.barcode = barcode.trim();
   if (typeof category === "string") updateData.category = category.trim();
   if (typeof costPrice === "number") updateData.costPrice = costPrice.toString();
   if (typeof sellPrice === "number") updateData.sellPrice = sellPrice.toString();
@@ -480,6 +530,7 @@ export async function updateProduct(params: {
     id: updatedProduct.id,
     name: updatedProduct.name,
     sku: updatedProduct.sku ?? null,
+    barcode: updatedProduct.barcode ?? null,
     category: updatedProduct.category ?? null,
     costPrice: updatedProduct.costPrice,
     sellPrice: updatedProduct.sellPrice,
@@ -488,6 +539,197 @@ export async function updateProduct(params: {
     reorderLevel: updatedProduct.reorderLevel ?? 10,
     imageUrl: updatedProduct.imageUrl ?? null,
   };
+}
+
+export type StockAdjustmentType = "purchase" | "adjustment" | "opening_balance";
+
+export interface StockMovementRecord {
+  id: number;
+  type: string;
+  quantity: number;
+  note: string | null;
+  createdAt: Date;
+  userId: number;
+}
+
+export async function adjustStock(params: {
+  productId: number;
+  businessId: number;
+  branchId: number;
+  userId: number;
+  type: StockAdjustmentType;
+  quantityChange: number;
+  note?: string | null;
+}): Promise<InventoryProduct> {
+  const { productId, businessId, branchId, userId, type, quantityChange, note } = params;
+
+  const [existing] = await db
+    .select({ product: products })
+    .from(products)
+    .where(and(eq(products.id, productId), eq(products.businessId, businessId)))
+    .limit(1);
+
+  if (!existing) {
+    const err = new Error("Product not found") as Error & { status?: number };
+    err.status = 404;
+    throw err;
+  }
+
+  const [existingLevel] = await db
+    .select()
+    .from(stockLevels)
+    .where(
+      and(
+        eq(stockLevels.businessId, businessId),
+        eq(stockLevels.branchId, branchId),
+        eq(stockLevels.productId, productId),
+      ),
+    )
+    .limit(1);
+
+  let newQuantity: number;
+
+  if (existingLevel) {
+    newQuantity = existingLevel.quantity + quantityChange;
+    await db
+      .update(stockLevels)
+      .set({ quantity: newQuantity, updatedAt: new Date() })
+      .where(eq(stockLevels.id, existingLevel.id));
+  } else {
+    newQuantity = Math.max(0, quantityChange);
+    await db.insert(stockLevels).values({
+      businessId,
+      branchId,
+      productId,
+      quantity: newQuantity,
+    });
+  }
+
+  await db.insert(stockMovements).values({
+    businessId,
+    branchId,
+    productId,
+    userId,
+    type,
+    quantity: quantityChange,
+    note: note?.trim() || null,
+  });
+
+  return {
+    id: existing.product.id,
+    name: existing.product.name,
+    sku: existing.product.sku ?? null,
+    barcode: existing.product.barcode ?? null,
+    category: existing.product.category ?? null,
+    costPrice: existing.product.costPrice,
+    sellPrice: existing.product.sellPrice,
+    status: existing.product.status,
+    quantity: newQuantity,
+    reorderLevel: existing.product.reorderLevel ?? 10,
+    imageUrl: existing.product.imageUrl ?? null,
+  };
+}
+
+export async function getStockMovements(params: {
+  productId: number;
+  businessId: number;
+  branchId?: number | null;
+  limit?: number;
+}): Promise<StockMovementRecord[]> {
+  const { productId, businessId, branchId } = params;
+  const rowLimit = params.limit ?? 50;
+
+  const conditions = [
+    eq(stockMovements.productId, productId),
+    eq(stockMovements.businessId, businessId),
+  ];
+
+  if (branchId != null) {
+    conditions.push(eq(stockMovements.branchId, branchId));
+  }
+
+  const rows = await db
+    .select({
+      id: stockMovements.id,
+      type: stockMovements.type,
+      quantity: stockMovements.quantity,
+      note: stockMovements.note,
+      createdAt: stockMovements.createdAt,
+      userId: stockMovements.userId,
+    })
+    .from(stockMovements)
+    .where(and(...conditions))
+    .orderBy(desc(stockMovements.createdAt))
+    .limit(rowLimit);
+
+  return rows;
+}
+
+export async function getFrequentlySold(params: {
+  businessId: number;
+  branchId?: number | null;
+  limit?: number;
+  days?: number;
+}): Promise<InventoryProduct[]> {
+  const { businessId, branchId } = params;
+  const limit = Math.min(50, Math.max(1, params.limit ?? 20));
+  const days = Math.max(1, params.days ?? 30);
+
+  const sinceDate = new Date();
+  sinceDate.setDate(sinceDate.getDate() - days);
+
+  const salesConditions = [
+    eq(sales.businessId, businessId),
+    gte(sales.soldAt, sinceDate),
+  ];
+  if (branchId != null) {
+    salesConditions.push(eq(sales.branchId, branchId));
+  }
+
+  const topProducts = await db
+    .select({
+      productId: saleItems.productId,
+      totalSold: sum(saleItems.quantity).as("total_sold"),
+    })
+    .from(saleItems)
+    .innerJoin(sales, eq(saleItems.saleId, sales.id))
+    .where(and(...salesConditions))
+    .groupBy(saleItems.productId)
+    .orderBy(desc(sql`total_sold`))
+    .limit(limit);
+
+  if (topProducts.length === 0) return [];
+
+  const productIds = topProducts.map((r) => r.productId);
+
+  const joinOn =
+    branchId != null
+      ? and(
+          eq(stockLevels.productId, products.id),
+          eq(stockLevels.businessId, businessId),
+          eq(stockLevels.branchId, branchId),
+        )
+      : and(
+          eq(stockLevels.productId, products.id),
+          eq(stockLevels.businessId, businessId),
+        );
+
+  const rows = await db
+    .select({ product: products, stockLevel: stockLevels })
+    .from(products)
+    .leftJoin(stockLevels, joinOn)
+    .where(
+      and(
+        eq(products.businessId, businessId),
+        sql`${products.id} = ANY(${productIds})`,
+      ),
+    );
+
+  const productMap = new Map(rows.map((r) => [r.product.id, toInventoryProduct(r)]));
+
+  return topProducts
+    .map((r) => productMap.get(r.productId))
+    .filter((p): p is InventoryProduct => p != null);
 }
 
 export async function deleteProduct(params: {

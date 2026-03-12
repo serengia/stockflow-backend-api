@@ -33,6 +33,7 @@ const saleItemSchema = z.object({
 const paymentSplitSchema = z.object({
   paymentMethod: z.string().min(1),
   amount: z.coerce.number().min(0),
+  referenceCode: z.string().optional(),
 });
 
 const createSaleSchema = z.object({
@@ -251,9 +252,35 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
     data.referenceCode?.trim() ||
     (data.customerName?.trim() ? `Customer: ${data.customerName.trim()}` : null);
 
-  try {
-    const hasSplitPayments = Array.isArray(payments) && payments.length > 0;
+  const hasSplitPayments = Array.isArray(payments) && payments.length > 0;
 
+  if (!hasSplitPayments && singlePaymentMethod && mapPaymentMethod(singlePaymentMethod) === "mpesa") {
+    if (!referenceCode) {
+      ctx.status = 400;
+      ctx.body = {
+        message: "M-Pesa transaction code is required",
+        error: { message: "M-Pesa transaction code is required" },
+      };
+      return;
+    }
+  }
+
+  if (hasSplitPayments) {
+    for (const p of payments) {
+      if (mapPaymentMethod(p.paymentMethod) === "mpesa" && p.amount > 0) {
+        if (!p.referenceCode?.trim()) {
+          ctx.status = 400;
+          ctx.body = {
+            message: "M-Pesa transaction code is required for each M-Pesa payment",
+            error: { message: "M-Pesa transaction code is required for each M-Pesa payment" },
+          };
+          return;
+        }
+      }
+    }
+  }
+
+  try {
     const createParams: Parameters<typeof createSale>[0] = {
       businessId: user.businessId,
       branchId,
@@ -275,6 +302,7 @@ salesRouter.post("/", requireAuth, async (ctx: Context) => {
       createParams.payments = payments.map((p) => ({
         paymentMethod: mapPaymentMethod(p.paymentMethod),
         amount: p.amount,
+        referenceCode: p.referenceCode?.trim() || null,
       }));
     }
 

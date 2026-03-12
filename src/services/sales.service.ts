@@ -18,7 +18,7 @@ export interface CreateSaleParams {
   items: CreateSaleItemInput[];
   totalAmount: number;
   paymentMethod: "cash" | "mpesa" | "bank_transfer" | "card" | "other";
-  payments?: Array<{ paymentMethod: "cash" | "mpesa" | "bank_transfer" | "card" | "other"; amount: number }>;
+  payments?: Array<{ paymentMethod: "cash" | "mpesa" | "bank_transfer" | "card" | "other"; amount: number; referenceCode?: string | null }>;
   referenceCode?: string | null;
   offlineId?: string | null;
 }
@@ -188,7 +188,7 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
           branchId,
           saleId: saleRow.id,
           paymentMethod: p.paymentMethod,
-          referenceCode: referenceCode ?? null,
+          referenceCode: p.referenceCode || referenceCode || null,
           amount: p.amount.toFixed(2),
           recordedByUserId: userId,
         });

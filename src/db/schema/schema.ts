@@ -168,6 +168,7 @@ export const products = pgTable("products", {
     .references(() => businesses.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   sku: varchar("sku", { length: 100 }),
+  barcode: varchar("barcode", { length: 255 }),
   category: varchar("category", { length: 255 }),
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 12, scale: 2 }).notNull(),
