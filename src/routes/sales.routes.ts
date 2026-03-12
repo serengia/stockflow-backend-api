@@ -26,7 +26,7 @@ const saleItemSchema = z.object({
     },
     z.number().int().positive({ message: "Invalid product id" }),
   ),
-  quantity: z.coerce.number().int().min(1),
+  quantity: z.coerce.number().min(0.001),
   unitPrice: z.coerce.number().min(0),
 });
 

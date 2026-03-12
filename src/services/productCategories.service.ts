@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { productCategories, products } from "../db/schema/schema.js";
+import { CATEGORY_TEMPLATES } from "../config/category-templates.js";
 
 type DbCategory = typeof productCategories.$inferSelect;
 
@@ -192,5 +193,38 @@ export async function deleteCategory(params: {
       ),
     )
     .returning({ id: productCategories.id });
+}
+
+export async function seedFromTemplate(params: {
+  businessId: number;
+  businessType: string;
+}): Promise<{ created: number; skipped: number }> {
+  const template = CATEGORY_TEMPLATES[params.businessType];
+  if (!template) {
+    const err = new Error(`Unknown business type: ${params.businessType}`) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+
+  const existing = await listCategories({ businessId: params.businessId });
+  const existingNames = new Set(existing.map((c) => c.name.toLowerCase()));
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const name of template) {
+    if (existingNames.has(name.toLowerCase())) {
+      skipped++;
+      continue;
+    }
+
+    await db.insert(productCategories).values({
+      businessId: params.businessId,
+      name,
+    });
+    created++;
+  }
+
+  return { created, skipped };
 }
 

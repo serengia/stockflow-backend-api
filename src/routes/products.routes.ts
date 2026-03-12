@@ -34,14 +34,17 @@ const listQuerySchema = z.object({
     .optional(),
 });
 
+const VALID_UNITS = ["piece", "kg", "gram", "liter", "meter", "dozen", "box", "pack"] as const;
+
 const productBodySchema = z.object({
   name: z.string().min(1, "Name is required"),
   sku: z.string().optional(),
   barcode: z.string().optional(),
   category: z.string().optional(),
+  unit: z.enum(VALID_UNITS).default("piece"),
   costPrice: z.coerce.number().positive("Cost price must be greater than 0"),
   sellPrice: z.coerce.number().positive("Sell price must be greater than 0"),
-  quantity: z.coerce.number().int().min(0, "Quantity is required"),
+  quantity: z.coerce.number().min(0, "Quantity is required"),
   reorderLevel: z.coerce.number().int().min(0).optional(),
   imageUrl: z.string().url().optional(),
 });
@@ -134,6 +137,7 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
     sku: payload.sku ?? null,
     barcode: payload.barcode ?? null,
     category: payload.category ?? null,
+    unit: payload.unit,
     costPrice: payload.costPrice,
     sellPrice: payload.sellPrice,
     quantity: payload.quantity,
@@ -151,6 +155,7 @@ productsRouter.post("/", requireAuth, async (ctx: Context) => {
       name: { to: created.name },
       sku: { to: created.sku },
       category: { to: created.category },
+      unit: { to: created.unit },
       costPrice: { to: created.costPrice },
       sellPrice: { to: created.sellPrice },
       quantity: { to: created.quantity },
@@ -166,9 +171,10 @@ const bulkProductRowSchema = z.object({
   name: z.string().min(1),
   sku: z.string().optional(),
   category: z.string().optional(),
+  unit: z.enum(VALID_UNITS).default("piece"),
   costPrice: z.coerce.number().positive("Cost price must be greater than 0"),
   sellPrice: z.coerce.number().positive("Sell price must be greater than 0"),
-  quantity: z.coerce.number().int().min(0, "Quantity is required"),
+  quantity: z.coerce.number().min(0, "Quantity is required"),
   reorderLevel: z.coerce.number().int().min(0).optional(),
 });
 
@@ -222,6 +228,7 @@ productsRouter.post("/bulk", requireAuth, async (ctx: Context) => {
     costPrice: row.costPrice,
     sellPrice: row.sellPrice,
     quantity: row.quantity,
+    unit: row.unit,
     ...(row.sku !== undefined && { sku: row.sku ?? null }),
     ...(row.category !== undefined && { category: row.category ?? null }),
     ...(row.reorderLevel !== undefined && { reorderLevel: row.reorderLevel }),
@@ -434,7 +441,7 @@ productsRouter.get("/frequently-sold", requireAuth, async (ctx: Context) => {
 // POST /api/v1/products/:id/adjust
 const stockAdjustSchema = z.object({
   type: z.enum(["purchase", "adjustment", "opening_balance"]),
-  quantityChange: z.coerce.number().int(),
+  quantityChange: z.coerce.number(),
   note: z.string().optional(),
 });
 
@@ -558,6 +565,7 @@ productsRouter.patch("/:id", requireAuth, async (ctx: Context) => {
     ...(payload.sku !== undefined && { sku: payload.sku ?? null }),
     ...(payload.barcode !== undefined && { barcode: payload.barcode ?? null }),
     ...(payload.category !== undefined && { category: payload.category ?? null }),
+    ...(payload.unit !== undefined && { unit: payload.unit }),
     ...(payload.costPrice !== undefined && { costPrice: payload.costPrice }),
     ...(payload.sellPrice !== undefined && { sellPrice: payload.sellPrice }),
     ...(payload.quantity !== undefined && { quantity: payload.quantity }),

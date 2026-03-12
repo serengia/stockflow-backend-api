@@ -86,6 +86,39 @@ categoriesRouter.patch("/:id", requireAuth, async (ctx: Context) => {
   ctx.body = { data: updated };
 });
 
+// POST /api/v1/categories/seed-from-template
+const seedTemplateSchema = z.object({
+  businessType: z.string().min(1, "Business type is required"),
+});
+
+categoriesRouter.post("/seed-from-template", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+
+  if (user.role !== "admin" && user.role !== "manager") {
+    ctx.status = 403;
+    ctx.body = { message: "Only admins or managers can seed categories", error: { message: "Only admins or managers can seed categories" } };
+    return;
+  }
+
+  const body = (ctx.request as RequestWithBody).body;
+  const parsed = seedTemplateSchema.safeParse(body);
+
+  if (!parsed.success) {
+    ctx.status = 400;
+    const msg = firstIssueMessage(parsed.error);
+    ctx.body = { message: msg, error: { message: msg } };
+    return;
+  }
+
+  const result = await categoriesService.seedFromTemplate({
+    businessId: user.businessId,
+    businessType: parsed.data.businessType,
+  });
+
+  ctx.status = 200;
+  ctx.body = { data: result };
+});
+
 // DELETE /api/v1/categories/:id
 categoriesRouter.delete("/:id", requireAuth, async (ctx: Context) => {
   const user = ctx.state.user as AuthUser;

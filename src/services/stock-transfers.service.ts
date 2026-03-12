@@ -177,7 +177,7 @@ export async function createStockTransfer(
         )
         .limit(1);
 
-      const fromQty = fromLevel?.quantity ?? 0;
+      const fromQty = Number(fromLevel?.quantity ?? 0);
       if (fromQty < qty) {
         const err = new Error(
           `Insufficient stock for product ${item.productId} in branch ${fromBranchId}`,
@@ -190,7 +190,7 @@ export async function createStockTransfer(
         await tx
           .update(stockLevels)
           .set({
-            quantity: fromLevel.quantity - qty,
+            quantity: (fromQty - qty).toString(),
             updatedAt: new Date(),
           })
           .where(eq(stockLevels.id, fromLevel.id));
@@ -212,7 +212,7 @@ export async function createStockTransfer(
         await tx
           .update(stockLevels)
           .set({
-            quantity: toLevel.quantity + qty,
+            quantity: (Number(toLevel.quantity) + qty).toString(),
             updatedAt: new Date(),
           })
           .where(eq(stockLevels.id, toLevel.id));
@@ -221,14 +221,14 @@ export async function createStockTransfer(
           businessId,
           branchId: toBranchId,
           productId: item.productId,
-          quantity: qty,
+          quantity: qty.toString(),
         });
       }
 
       await tx.insert(stockTransferItems).values({
         transferId: createdTransfer.id,
         productId: item.productId,
-        quantity: qty,
+        quantity: qty.toString(),
       });
 
       await tx.insert(stockMovements).values({
@@ -237,7 +237,7 @@ export async function createStockTransfer(
         productId: item.productId,
         userId,
         type: "adjustment",
-        quantity: qty,
+        quantity: qty.toString(),
         note: `Stock transfer out to branch ${toBranchId} (transfer ${createdTransfer.id})`,
       });
 
@@ -247,7 +247,7 @@ export async function createStockTransfer(
         productId: item.productId,
         userId,
         type: "adjustment",
-        quantity: qty,
+        quantity: qty.toString(),
         note: `Stock transfer in from branch ${fromBranchId} (transfer ${createdTransfer.id})`,
       });
 
@@ -309,7 +309,7 @@ export async function listStockTransfers(params: {
     list.push({
       productId: row.productId,
       productName: String(row.productName),
-      quantity: row.quantity,
+      quantity: Number(row.quantity),
     });
     itemsByTransferId.set(row.transferId, list);
   }
@@ -382,7 +382,7 @@ export async function getStockTransferById(params: {
   const items: StockTransferItemForList[] = itemRows.map((r) => ({
     productId: r.productId,
     productName: String(r.productName),
-    quantity: r.quantity,
+    quantity: Number(r.quantity),
   }));
 
   return toListedTransfer(row, branchNames, items);

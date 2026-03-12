@@ -170,6 +170,7 @@ export const products = pgTable("products", {
   sku: varchar("sku", { length: 100 }),
   barcode: varchar("barcode", { length: 255 }),
   category: varchar("category", { length: 255 }),
+  unit: varchar("unit", { length: 20 }).notNull().default("piece"),
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 12, scale: 2 }).notNull(),
   reorderLevel: integer("reorder_level").notNull().default(10),
@@ -271,7 +272,7 @@ export const stockLevels = pgTable("stock_levels", {
   productId: integer("product_id")
     .notNull()
     .references(() => products.id, { onDelete: "cascade" }),
-  quantity: integer("quantity").notNull().default(0),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -294,7 +295,7 @@ export const stockMovements = pgTable("stock_movements", {
     .notNull()
     .references(() => users.id, { onDelete: "set null" }),
   type: stockMovementTypeEnum("type").notNull(),
-  quantity: integer("quantity").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -326,7 +327,7 @@ export const saleItems = pgTable("sale_items", {
   productId: integer("product_id")
     .notNull()
     .references(() => products.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
   lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
 });
@@ -361,7 +362,7 @@ export const returnItems = pgTable("return_items", {
   productId: integer("product_id")
     .notNull()
     .references(() => products.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
   lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
 });
@@ -430,6 +431,6 @@ export const stockTransferItems = pgTable("stock_transfer_items", {
   productId: integer("product_id")
     .notNull()
     .references(() => products.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
 });
 

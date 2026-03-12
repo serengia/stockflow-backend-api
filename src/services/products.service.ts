@@ -2,9 +2,15 @@ import { and, eq, desc, gte, ilike, or, sql, sum } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { products, stockLevels, stockMovements, saleItems, sales } from "../db/schema/schema.js";
 import { cloudinary } from "../lib/cloudinary.js";
+import { allowsDecimal, type UnitType } from "../config/units.js";
 
 type DbProduct = typeof products.$inferSelect;
 type DbStockLevel = typeof stockLevels.$inferSelect;
+
+function numericToNumber(val: string | number | null | undefined): number {
+  if (val == null) return 0;
+  return typeof val === "number" ? val : Number(val);
+}
 
 export interface InventoryProduct {
   id: number;
@@ -12,6 +18,7 @@ export interface InventoryProduct {
   sku: string | null;
   barcode: string | null;
   category: string | null;
+  unit: string;
   costPrice: DbProduct["costPrice"];
   sellPrice: DbProduct["sellPrice"];
   status: DbProduct["status"];
@@ -30,10 +37,11 @@ function toInventoryProduct(row: {
     sku: row.product.sku ?? null,
     barcode: row.product.barcode ?? null,
     category: row.product.category ?? null,
+    unit: row.product.unit ?? "piece",
     costPrice: row.product.costPrice,
     sellPrice: row.product.sellPrice,
     status: row.product.status,
-    quantity: row.stockLevel?.quantity ?? 0,
+    quantity: numericToNumber(row.stockLevel?.quantity),
     reorderLevel: row.product.reorderLevel ?? 10,
     imageUrl: row.product.imageUrl ?? null,
   };
@@ -112,6 +120,78 @@ export async function listProducts(params: {
   };
 }
 
+const CATEGORY_ABBREVIATIONS: Record<string, string> = {
+  "food & beverages": "FOD",
+  "household & cleaning": "HOU",
+  "personal care": "PER",
+  "baby products": "BAB",
+  "snacks & confectionery": "SNK",
+  "cooking oil & fats": "OIL",
+  dairy: "DAI",
+  "bread & bakery": "BRD",
+  stationery: "STA",
+  "alcoholic beverages": "ALC",
+  "soft drinks": "SDR",
+  "cereals & grains": "CER",
+  electrical: "ELE",
+  plumbing: "PLU",
+  "paint & finishes": "PNT",
+  tools: "TOO",
+  fasteners: "FAS",
+  "building materials": "BLD",
+  timber: "TIM",
+  "safety & ppe": "SAF",
+  "hair care": "HAI",
+  "skin care": "SKN",
+  makeup: "MKP",
+  nails: "NAL",
+  fragrances: "FRG",
+  "wigs & extensions": "WIG",
+  accessories: "ACC",
+  prescription: "PRE",
+  "otc pain & fever": "OTC",
+  "cold & flu": "CLD",
+  digestive: "DIG",
+  "vitamins & supplements": "VIT",
+  "first aid": "FAD",
+  spirits: "SPI",
+  beer: "BER",
+  wine: "WIN",
+  cigarettes: "CIG",
+  other: "OTH",
+  general: "GEN",
+};
+
+async function generateSku(
+  businessId: number,
+  category: string | null,
+): Promise<string> {
+  const catKey = (category ?? "").trim().toLowerCase();
+  const prefix = CATEGORY_ABBREVIATIONS[catKey] ?? "SF";
+
+  const [lastRow] = await db
+    .select({ sku: products.sku })
+    .from(products)
+    .where(
+      and(
+        eq(products.businessId, businessId),
+        ilike(products.sku, `${prefix}-%`),
+      ),
+    )
+    .orderBy(desc(products.sku))
+    .limit(1);
+
+  let nextNum = 1;
+  if (lastRow?.sku) {
+    const parts = lastRow.sku.split("-");
+    const num = parseInt(parts[parts.length - 1] ?? "0", 10);
+    if (!isNaN(num)) nextNum = num + 1;
+  }
+
+  const padLen = prefix === "SF" ? 5 : 3;
+  return `${prefix}-${String(nextNum).padStart(padLen, "0")}`;
+}
+
 export async function createProduct(params: {
   businessId: number;
   branchId?: number | null;
@@ -120,6 +200,7 @@ export async function createProduct(params: {
   sku?: string | null;
   barcode?: string | null;
   category?: string | null;
+  unit?: string;
   costPrice: number;
   sellPrice: number;
   quantity: number;
@@ -133,6 +214,7 @@ export async function createProduct(params: {
     sku,
     barcode,
     category,
+    unit = "piece",
     costPrice,
     sellPrice,
     quantity,
@@ -142,14 +224,27 @@ export async function createProduct(params: {
   const reorderLevelValue =
     typeof reorderLevel === "number" && reorderLevel >= 0 ? reorderLevel : 10;
 
+  const unitValue = unit || "piece";
+  const isDecimalUnit = allowsDecimal(unitValue as UnitType);
+  if (!isDecimalUnit && quantity !== Math.floor(quantity)) {
+    const err = new Error(
+      `Quantity must be a whole number for unit "${unitValue}"`,
+    ) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+
+  const resolvedSku = sku?.trim() || (await generateSku(businessId, category ?? null));
+
   const [product] = await db
     .insert(products)
     .values({
       businessId,
       name: name.trim(),
-      sku: sku?.trim() || null,
+      sku: resolvedSku,
       barcode: barcode?.trim() || null,
       category: category?.trim() || null,
+      unit: unitValue,
       costPrice: costPrice.toString(),
       sellPrice: sellPrice.toString(),
       reorderLevel: reorderLevelValue,
@@ -173,7 +268,7 @@ export async function createProduct(params: {
         businessId,
         branchId,
         productId: product.id,
-        quantity: initialQty,
+        quantity: initialQty.toString(),
       })
       .returning();
     stockLevel = level ?? null;
@@ -185,10 +280,11 @@ export async function createProduct(params: {
     sku: product.sku ?? null,
     barcode: product.barcode ?? null,
     category: product.category ?? null,
+    unit: product.unit ?? "piece",
     costPrice: product.costPrice,
     sellPrice: product.sellPrice,
     status: product.status,
-    quantity: stockLevel?.quantity ?? 0,
+    quantity: numericToNumber(stockLevel?.quantity),
     reorderLevel: product.reorderLevel ?? 10,
     imageUrl: product.imageUrl ?? null,
   };
@@ -198,6 +294,7 @@ export interface BulkProductRow {
   name: string;
   sku?: string | null;
   category?: string | null;
+  unit?: string;
   costPrice: number;
   sellPrice: number;
   quantity: number;
@@ -279,6 +376,7 @@ export async function bulkCreateProducts(params: {
         name: rawName,
         sku: row.sku != null ? String(row.sku).trim() || null : null,
         category: row.category != null ? String(row.category).trim() || null : null,
+        unit: row.unit || "piece",
         costPrice,
         sellPrice,
         quantity,
@@ -423,6 +521,7 @@ export async function updateProduct(params: {
   sku?: string | null;
   barcode?: string | null;
   category?: string | null;
+  unit?: string;
   costPrice?: number;
   sellPrice?: number;
   quantity?: number;
@@ -451,6 +550,7 @@ export async function updateProduct(params: {
   if (typeof sku === "string") updateData.sku = sku.trim();
   if (typeof barcode === "string") updateData.barcode = barcode.trim();
   if (typeof category === "string") updateData.category = category.trim();
+  if (typeof params.unit === "string") updateData.unit = params.unit;
   if (typeof costPrice === "number") updateData.costPrice = costPrice.toString();
   if (typeof sellPrice === "number") updateData.sellPrice = sellPrice.toString();
   if (typeof params.reorderLevel === "number" && params.reorderLevel >= 0)
@@ -495,7 +595,7 @@ export async function updateProduct(params: {
     if (existingLevel) {
       const [updatedLevel] = await db
         .update(stockLevels)
-        .set({ quantity })
+        .set({ quantity: quantity.toString() })
         .where(eq(stockLevels.id, existingLevel.id))
         .returning();
       stockLevel = updatedLevel ?? existingLevel;
@@ -506,7 +606,7 @@ export async function updateProduct(params: {
           businessId,
           branchId,
           productId: id,
-          quantity,
+          quantity: quantity.toString(),
         })
         .returning();
       stockLevel = createdLevel ?? null;
@@ -532,10 +632,11 @@ export async function updateProduct(params: {
     sku: updatedProduct.sku ?? null,
     barcode: updatedProduct.barcode ?? null,
     category: updatedProduct.category ?? null,
+    unit: updatedProduct.unit ?? "piece",
     costPrice: updatedProduct.costPrice,
     sellPrice: updatedProduct.sellPrice,
     status: updatedProduct.status,
-    quantity: stockLevel?.quantity ?? 0,
+    quantity: numericToNumber(stockLevel?.quantity),
     reorderLevel: updatedProduct.reorderLevel ?? 10,
     imageUrl: updatedProduct.imageUrl ?? null,
   };
@@ -546,7 +647,7 @@ export type StockAdjustmentType = "purchase" | "adjustment" | "opening_balance";
 export interface StockMovementRecord {
   id: number;
   type: string;
-  quantity: number;
+  quantity: number | string;
   note: string | null;
   createdAt: Date;
   userId: number;
@@ -590,10 +691,10 @@ export async function adjustStock(params: {
   let newQuantity: number;
 
   if (existingLevel) {
-    newQuantity = existingLevel.quantity + quantityChange;
+    newQuantity = numericToNumber(existingLevel.quantity) + quantityChange;
     await db
       .update(stockLevels)
-      .set({ quantity: newQuantity, updatedAt: new Date() })
+      .set({ quantity: newQuantity.toString(), updatedAt: new Date() })
       .where(eq(stockLevels.id, existingLevel.id));
   } else {
     newQuantity = Math.max(0, quantityChange);
@@ -601,7 +702,7 @@ export async function adjustStock(params: {
       businessId,
       branchId,
       productId,
-      quantity: newQuantity,
+      quantity: newQuantity.toString(),
     });
   }
 
@@ -611,7 +712,7 @@ export async function adjustStock(params: {
     productId,
     userId,
     type,
-    quantity: quantityChange,
+    quantity: quantityChange.toString(),
     note: note?.trim() || null,
   });
 
@@ -621,6 +722,7 @@ export async function adjustStock(params: {
     sku: existing.product.sku ?? null,
     barcode: existing.product.barcode ?? null,
     category: existing.product.category ?? null,
+    unit: existing.product.unit ?? "piece",
     costPrice: existing.product.costPrice,
     sellPrice: existing.product.sellPrice,
     status: existing.product.status,

@@ -117,7 +117,7 @@ export async function createReturn(params: CreateReturnParams): Promise<ListedRe
   >();
   for (const row of saleItemsRows) {
     saleItemByProductId.set(row.productId, {
-      quantity: row.quantity,
+      quantity: Number(row.quantity),
       unitPrice: Number(row.unitPrice),
     });
   }
@@ -134,7 +134,7 @@ export async function createReturn(params: CreateReturnParams): Promise<ListedRe
   const alreadyReturnedByProductId = new Map<number, number>();
   for (const row of existingReturnItemRows) {
     const prev = alreadyReturnedByProductId.get(row.productId) ?? 0;
-    alreadyReturnedByProductId.set(row.productId, prev + row.quantity);
+    alreadyReturnedByProductId.set(row.productId, prev + Number(row.quantity));
   }
 
   const validatedItems: {
@@ -224,7 +224,7 @@ export async function createReturn(params: CreateReturnParams): Promise<ListedRe
       await tx.insert(returnItems).values({
         returnId: createdReturn.id,
         productId: item.productId,
-        quantity: item.quantity,
+        quantity: item.quantity.toString(),
         unitPrice: item.unitPrice.toFixed(2),
         lineTotal: lineTotalStr,
       });
@@ -245,7 +245,7 @@ export async function createReturn(params: CreateReturnParams): Promise<ListedRe
         await tx
           .update(stockLevels)
           .set({
-            quantity: existingLevel.quantity + item.quantity,
+            quantity: (Number(existingLevel.quantity) + item.quantity).toString(),
             updatedAt: new Date(),
           })
           .where(eq(stockLevels.id, existingLevel.id));
@@ -254,7 +254,7 @@ export async function createReturn(params: CreateReturnParams): Promise<ListedRe
           businessId,
           branchId: branchIdForReturn,
           productId: item.productId,
-          quantity: item.quantity,
+          quantity: item.quantity.toString(),
         });
       }
 
@@ -264,7 +264,7 @@ export async function createReturn(params: CreateReturnParams): Promise<ListedRe
         productId: item.productId,
         userId,
         type: "return",
-        quantity: item.quantity,
+        quantity: item.quantity.toString(),
         note: reason ? `Return for sale ${saleId}: ${reason}` : `Return for sale ${saleId}`,
       });
 
@@ -339,7 +339,7 @@ export async function listReturns(params: {
     const list = itemsByReturnId.get(row.returnId) ?? [];
     list.push({
       productId: row.productId,
-      quantity: row.quantity,
+      quantity: Number(row.quantity),
       unitPrice: Number(row.unitPrice),
       total: Number(row.lineTotal),
     });
@@ -375,7 +375,7 @@ export async function getReturnById(params: {
 
   const items: ReturnItemForList[] = itemRows.map((r) => ({
     productId: r.productId,
-    quantity: r.quantity,
+    quantity: Number(r.quantity),
     unitPrice: Number(r.unitPrice),
     total: Number(r.lineTotal),
   }));

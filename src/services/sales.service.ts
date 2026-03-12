@@ -100,7 +100,7 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
       await tx.insert(saleItems).values({
         saleId: saleRow.id,
         productId: item.productId,
-        quantity: item.quantity,
+        quantity: item.quantity.toString(),
         unitPrice: item.unitPrice.toFixed(2),
         lineTotal: lineTotalStr,
       });
@@ -118,12 +118,12 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
         .limit(1);
 
       if (existingLevel) {
-        const previousQty = existingLevel.quantity;
-        const newQty = existingLevel.quantity - item.quantity;
+        const previousQty = Number(existingLevel.quantity);
+        const newQty = previousQty - item.quantity;
         await tx
           .update(stockLevels)
           .set({
-            quantity: newQty,
+            quantity: newQty.toString(),
             updatedAt: new Date(),
           })
           .where(eq(stockLevels.id, existingLevel.id));
@@ -149,7 +149,7 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
           businessId,
           branchId,
           productId: item.productId,
-          quantity: -item.quantity,
+          quantity: (-item.quantity).toString(),
         });
         await recordAuditLog({
           businessId,
@@ -176,7 +176,7 @@ export async function createSale(params: CreateSaleParams): Promise<CreatedSale>
         productId: item.productId,
         userId,
         type: "sale",
-        quantity: item.quantity,
+        quantity: item.quantity.toString(),
         note: "POS sale",
       });
     }
@@ -277,7 +277,7 @@ export async function listSales(params: {
     list.push({
       productId: row.productId,
       productName: String(row.productName),
-      quantity: row.quantity,
+      quantity: Number(row.quantity),
       unitPrice: Number(row.unitPrice),
       total: Number(row.lineTotal),
     });
