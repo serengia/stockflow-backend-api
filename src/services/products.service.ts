@@ -58,10 +58,11 @@ export async function listProducts(params: {
   businessId: number;
   branchId?: number | null;
   search?: string;
+  category?: string;
   page?: number;
   limit?: number;
 }): Promise<ListProductsResult> {
-  const { businessId, branchId, search } = params;
+  const { businessId, branchId, search, category } = params;
   const page = Math.max(1, params.page ?? 1);
   const limit = Math.min(200, Math.max(1, params.limit ?? 200));
 
@@ -88,6 +89,10 @@ export async function listProducts(params: {
         ilike(products.barcode, term),
       )!,
     );
+  }
+
+  if (category && category.trim()) {
+    whereConditions.push(eq(products.category, category.trim()));
   }
 
   const whereClause = and(...whereConditions);
@@ -117,6 +122,68 @@ export async function listProducts(params: {
     total,
     page,
     limit,
+  };
+}
+
+export interface ProductsSummary {
+  total: number;
+  belowReorderCount: number;
+  totalStockValue: number;
+}
+
+export async function getProductsSummary(params: {
+  businessId: number;
+  branchId?: number | null;
+}): Promise<ProductsSummary> {
+  const { businessId, branchId } = params;
+
+  const joinOn =
+    branchId != null
+      ? and(
+          eq(stockLevels.productId, products.id),
+          eq(stockLevels.businessId, businessId),
+          eq(stockLevels.branchId, branchId),
+        )
+      : and(
+          eq(stockLevels.productId, products.id),
+          eq(stockLevels.businessId, businessId),
+        );
+
+  const whereClause = eq(products.businessId, businessId);
+
+  const rows = await db
+    .select({
+      product: products,
+      stockLevel: stockLevels,
+    })
+    .from(products)
+    .leftJoin(stockLevels, joinOn)
+    .where(whereClause);
+
+  const seenProductIds = new Set<number>();
+  const belowReorderProductIds = new Set<number>();
+  let totalStockValue = 0;
+
+  for (const row of rows) {
+    const qty = numericToNumber(row.stockLevel?.quantity);
+    const reorder = row.product.reorderLevel ?? 10;
+    const cost = numericToNumber(row.product.costPrice);
+
+    if (branchId != null) {
+      seenProductIds.add(row.product.id);
+      totalStockValue += cost * qty;
+      if (qty < reorder) belowReorderProductIds.add(row.product.id);
+    } else {
+      seenProductIds.add(row.product.id);
+      totalStockValue += cost * qty;
+      if (qty < reorder) belowReorderProductIds.add(row.product.id);
+    }
+  }
+
+  return {
+    total: seenProductIds.size,
+    belowReorderCount: belowReorderProductIds.size,
+    totalStockValue: Math.round(totalStockValue * 100) / 100,
   };
 }
 

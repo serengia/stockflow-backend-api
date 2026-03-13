@@ -15,6 +15,7 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   search: z.string().optional(),
+  category: z.string().optional(),
   belowReorder: z
     .union([z.string(), z.boolean()])
     .optional()
@@ -80,7 +81,7 @@ productsRouter.get("/", requireAuth, async (ctx: Context) => {
       ? user.branchId
       : undefined;
 
-  const { search, page, limit } = parsed.data;
+  const { search, category, page, limit } = parsed.data;
 
   const listParams: Parameters<typeof productsService.listProducts>[0] = {
     businessId: user.businessId,
@@ -90,6 +91,9 @@ productsRouter.get("/", requireAuth, async (ctx: Context) => {
     ...(search !== undefined && search !== ""
       ? { search }
       : {}),
+    ...(category !== undefined && category !== ""
+      ? { category }
+      : {}),
   };
 
   const result = await productsService.listProducts(listParams);
@@ -98,6 +102,28 @@ productsRouter.get("/", requireAuth, async (ctx: Context) => {
 
   ctx.status = 200;
   ctx.body = { data, total: result.total, page: result.page, limit: result.limit };
+});
+
+// GET /api/v1/products/summary
+productsRouter.get("/summary", requireAuth, async (ctx: Context) => {
+  const user = ctx.state.user as AuthUser;
+  const query = (ctx.request as RequestWithBody).query ?? {};
+  const parsed = listQuerySchema.pick({ branchId: true }).safeParse(query);
+
+  const branchId =
+    parsed.success && typeof parsed.data.branchId === "number"
+      ? parsed.data.branchId
+      : user.branchId != null
+        ? user.branchId
+        : undefined;
+
+  const summary = await productsService.getProductsSummary({
+    businessId: user.businessId,
+    branchId: branchId ?? null,
+  });
+
+  ctx.status = 200;
+  ctx.body = summary;
 });
 
 // POST /api/v1/products
