@@ -1,6 +1,6 @@
 import { and, eq, desc, gte, ilike, or, sql, sum } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { products, stockLevels, stockMovements, saleItems, sales } from "../db/schema/schema.js";
+import { products, stockLevels, stockMovements, saleItems, sales, branches } from "../db/schema/schema.js";
 import { cloudinary } from "../lib/cloudinary.js";
 import { allowsDecimal, type UnitType } from "../config/units.js";
 
@@ -62,9 +62,32 @@ export async function listProducts(params: {
   page?: number;
   limit?: number;
 }): Promise<ListProductsResult> {
-  const { businessId, branchId, search, category } = params;
+  let { businessId, branchId, search, category } = params;
   const page = Math.max(1, params.page ?? 1);
   const limit = Math.min(200, Math.max(1, params.limit ?? 200));
+
+  if (branchId == null) {
+    const [branchCountRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(branches)
+      .where(eq(branches.businessId, businessId));
+    const branchCount = Number(branchCountRow?.count ?? 0);
+    if (branchCount > 1) {
+      const err = new Error("Branch is required when business has multiple branches") as Error & {
+        status?: number;
+      };
+      err.status = 400;
+      throw err;
+    }
+    if (branchCount === 1) {
+      const [singleBranch] = await db
+        .select({ id: branches.id })
+        .from(branches)
+        .where(eq(branches.businessId, businessId))
+        .limit(1);
+      if (singleBranch) branchId = singleBranch.id;
+    }
+  }
 
   const joinOn =
     branchId != null
@@ -135,7 +158,30 @@ export async function getProductsSummary(params: {
   businessId: number;
   branchId?: number | null;
 }): Promise<ProductsSummary> {
-  const { businessId, branchId } = params;
+  let { businessId, branchId } = params;
+
+  if (branchId == null) {
+    const [branchCountRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(branches)
+      .where(eq(branches.businessId, businessId));
+    const branchCount = Number(branchCountRow?.count ?? 0);
+    if (branchCount > 1) {
+      const err = new Error("Branch is required when business has multiple branches") as Error & {
+        status?: number;
+      };
+      err.status = 400;
+      throw err;
+    }
+    if (branchCount === 1) {
+      const [singleBranch] = await db
+        .select({ id: branches.id })
+        .from(branches)
+        .where(eq(branches.businessId, businessId))
+        .limit(1);
+      if (singleBranch) branchId = singleBranch.id;
+    }
+  }
 
   const joinOn =
     branchId != null

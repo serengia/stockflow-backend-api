@@ -469,6 +469,17 @@ const stockAdjustSchema = z.object({
   type: z.enum(["purchase", "adjustment", "opening_balance"]),
   quantityChange: z.coerce.number(),
   note: z.string().optional(),
+  branchId: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((v) => {
+      if (typeof v === "number") return Number.isNaN(v) || v <= 0 ? undefined : v;
+      if (typeof v === "string" && v.trim() !== "") {
+        const n = Number(v);
+        return Number.isNaN(n) || n <= 0 ? undefined : n;
+      }
+      return undefined;
+    }),
 });
 
 productsRouter.post("/:id/adjust", requireAuth, async (ctx: Context) => {
@@ -490,7 +501,7 @@ productsRouter.post("/:id/adjust", requireAuth, async (ctx: Context) => {
     return;
   }
 
-  const branchId = user.branchId;
+  const branchId = parsed.data.branchId ?? user.branchId ?? null;
   if (branchId == null) {
     ctx.status = 400;
     ctx.body = { message: "Branch required for stock adjustment", error: { message: "Branch required for stock adjustment" } };

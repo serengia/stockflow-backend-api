@@ -8,6 +8,7 @@ import {
   stockTransfers,
   stockTransferItems,
 } from "../db/schema/schema.js";
+import { allowsDecimal, type UnitType } from "../config/units.js";
 
 type DbStockTransfer = typeof stockTransfers.$inferSelect;
 
@@ -107,13 +108,21 @@ export async function createStockTransfer(
       id: products.id,
       businessId: products.businessId,
       name: products.name,
+      unit: products.unit,
     })
     .from(products)
     .where(inArray(products.id, productIds));
 
-  const productById = new Map<number, { businessId: number; name: string }>();
+  const productById = new Map<
+    number,
+    { businessId: number; name: string; unit: string }
+  >();
   for (const p of productRows) {
-    productById.set(p.id, { businessId: p.businessId, name: String(p.name) });
+    productById.set(p.id, {
+      businessId: p.businessId,
+      name: String(p.name),
+      unit: String(p.unit ?? "piece"),
+    });
   }
 
   for (const item of items) {
@@ -126,7 +135,10 @@ export async function createStockTransfer(
       throw err;
     }
 
-    const qty = Math.floor(item.quantity);
+    const isDecimalUnit = allowsDecimal((product.unit ?? "piece") as UnitType);
+    const qty = isDecimalUnit
+      ? Math.round(item.quantity * 1000) / 1000
+      : Math.floor(item.quantity);
     if (!Number.isFinite(qty) || qty <= 0) {
       const err = new Error(`Invalid quantity for product ${item.productId}`) as
         Error & { status?: number };
@@ -162,8 +174,11 @@ export async function createStockTransfer(
     const itemsForList: StockTransferItemForList[] = [];
 
     for (const item of items) {
-      const qty = Math.floor(item.quantity);
       const product = productById.get(item.productId)!;
+      const isDecimalUnit = allowsDecimal((product.unit ?? "piece") as UnitType);
+      const qty = isDecimalUnit
+        ? Math.round(item.quantity * 1000) / 1000
+        : Math.floor(item.quantity);
 
       const [fromLevel] = await tx
         .select()
